@@ -5,15 +5,23 @@ import type { Project } from '@/lib/types';
 
 function Progress({ project }: { project: Project }) {
   const complete = project.complete;
+  const currentStage = stages[complete];
   return (
     <div
       className="steps"
       role="img"
-      aria-label={complete + ' of 5 steps completed' + (complete < 5 ? ', ' + stages[complete] + ' in progress' : '')}
+      aria-label={complete + ' of 5 steps completed' + (currentStage ? ', ' + currentStage + (project.needs ? ' needs your input' : ' in progress') : '')}
       style={{ '--fill': Math.min(complete, 4) * 25 + '%' } as CSSProperties}
     >
-      {stages.map((_, i) => (
-        <span key={i} className={'dot ' + (i < complete ? 'done' : i === complete ? 'current' : '')} />
+      {stages.map((stage, i) => (
+        <span key={stage} className="step" aria-hidden="true">
+          {i === complete && project.needs ? (
+            <span className="dot needs" title={stage + ' needs your input'}>?</span>
+          ) : (
+            <span className={'dot ' + (i < complete ? 'done' : i === complete ? 'current' : '')} />
+          )}
+          <span className="step-label">{stage}</span>
+        </span>
       ))}
     </div>
   );
@@ -31,30 +39,30 @@ export default function Picker({ projects, onOpen, onDownload, onDelete, onNew }
   return (
     <section className="picker">
       <h1>Your Projects</h1>
-      <p>Open a project or start a new one.</p>
       <div className="grid">
         {projects.map(project => (
           <article className="project" key={project.id}>
-            <div className="card-tools">
-              {project.needs ? (
-                <span className="needs" title="Needs your input" aria-label="Needs your input">?</span>
-              ) : null}
+            <header className="card-tools">
+              <h2>{project.name}</h2>
               <div className="controls">
-                <button className="icon" aria-label={'Download ' + project.name} onClick={() => onDownload(project)}>
+                <button type="button" className="icon" title="Download" aria-label={'Download ' + project.name} onClick={() => onDownload(project)}>
                   <Icon name="download" />
                 </button>
-                <button className="icon delete" aria-label={'Delete ' + project.name} onClick={() => onDelete(project)}>
+                <button type="button" className="icon delete" title="Delete" aria-label={'Delete ' + project.name} onClick={() => onDelete(project)}>
                   <Icon name="delete" />
                 </button>
               </div>
-            </div>
-            <button className="project-main" onClick={() => onOpen(project.id)}>
-              <h2>{project.name}</h2>
-              <span className="card-rule"></span>
+            </header>
+            <div className="project-main">
               <p>{project.description || 'No description'}</p>
               <Progress project={project} />
-              <p className="edited">Edited {age(project.edited)}</p>
-            </button>
+            </div>
+            <footer className="project-footer">
+              <p>Edited {age(project.edited)}</p>
+              <button type="button" className="project-open" aria-label={'Open ' + project.name} onClick={() => onOpen(project.id)}>
+                Open <span aria-hidden="true">→</span>
+              </button>
+            </footer>
           </article>
         ))}
         {projects.length === 0 ? <p className="empty">Your workspace is empty.</p> : null}
