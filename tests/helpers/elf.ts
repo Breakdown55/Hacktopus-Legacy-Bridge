@@ -1,0 +1,53 @@
+/** Builds a minimal but structurally valid ELF64 LE image for parser tests (macOS has no ELF toolchain). */
+export function buildElf(o: { machine?: number; type?: number; interp?: string | null; needed?: string[]; symtab?: boolean; extraStrings?: string[]; bindNow?: boolean; relro?: boolean } = {}): Buffer {
+  const { machine = 0x3e, type = 3, interp = '/lib64/ld-linux-x86-64.so.2', needed = ['libc.so.6'], symtab = false, extraStrings = [], bindNow = true, relro = true } = o;
+  const phCount = 3 + (interp ? 1 : 0) + (relro ? 1 : 0);
+  const hdr = 64;
+  let off = hdr + phCount * 56;
+  const interpOff = off;
+  const interpBytes = interp ? Buffer.from(interp + '\0') : Buffer.alloc(0);
+  off += interpBytes.length;
+  const strtab: number[] = [0];
+  const neededIdx = needed.map((n) => { const i = strtab.length; for (const c of Buffer.from(n + '\0')) strtab.push(c); return i; });
+  const strOff = off;
+  off += strtab.length;
+  off = (off + 7) & ~7;
+  const dynOff = off;
+  const dyn: [number, number][] = [...neededIdx.map((i) => [1, i] as [number, number]), [5, strOff], ...(bindNow ? [[30, 8] as [number, number]] : []), [0, 0]];
+  off += dyn.length * 16;
+  const extra = Buffer.from(extraStrings.join('\0') + '\0');
+  const extraOff = off;
+  off += extra.length;
+  const shstr = Buffer.from('\0.shstrtab\0.symtab\0');
+  const shstrOff = off;
+  off += shstr.length;
+  off = (off + 7) & ~7;
+  const shOff = off;
+  const shnum = symtab ? 3 : 2;
+  const total = shOff + shnum * 64;
+  const b = Buffer.alloc(total);
+  b.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]);
+  b.writeUInt16LE(type, 16); b.writeUInt16LE(machine, 18); b.writeUInt32LE(1, 20);
+  b.writeBigUInt64LE(BigInt(hdr), 32); b.writeBigUInt64LE(BigInt(shOff), 40);
+  b.writeUInt16LE(64, 52); b.writeUInt16LE(56, 54); b.writeUInt16LE(phCount, 56);
+  b.writeUInt16LE(64, 58); b.writeUInt16LE(shnum, 60); b.writeUInt16LE(1, 62);
+  let p = hdr;
+  const ph = (t: number, flags: number, offset: number, size: number) => {
+    b.writeUInt32LE(t, p); b.writeUInt32LE(flags, p + 4); b.writeBigUInt64LE(BigInt(offset), p + 8);
+    b.writeBigUInt64LE(BigInt(offset), p + 16); b.writeBigUInt64LE(BigInt(size), p + 32); b.writeBigUInt64LE(BigInt(size), p + 40); p += 56;
+  };
+  ph(1, 5, 0, total);
+  if (interp) ph(3, 4, interpOff, interpBytes.length);
+  ph(2, 6, dynOff, dyn.length * 16);
+  ph(0x6474e551, 6, 0, 0);
+  if (relro) ph(0x6474e552, 4, dynOff, dyn.length * 16);
+  b.set(interpBytes, interpOff);
+  b.set(strtab, strOff);
+  dyn.forEach(([t, v], i) => { b.writeBigUInt64LE(BigInt(t), dynOff + i * 16); b.writeBigUInt64LE(BigInt(v), dynOff + i * 16 + 8); });
+  b.set(extra, extraOff);
+  b.set(shstr, shstrOff);
+  const sh = (i: number, name: number, t: number, offset: number, size: number) => { const q = shOff + i * 64; b.writeUInt32LE(name, q); b.writeUInt32LE(t, q + 4); b.writeBigUInt64LE(BigInt(offset), q + 24); b.writeBigUInt64LE(BigInt(size), q + 32); };
+  sh(1, 1, 3, shstrOff, shstr.length);
+  if (symtab) sh(2, 11, 2, shstrOff, 0);
+  return b;
+}

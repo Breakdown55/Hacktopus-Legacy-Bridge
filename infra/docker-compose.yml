@@ -1,0 +1,25 @@
+# UNVERIFIED: written to the plan (§2.5); not run on the authoring machine (no Docker available).
+# On AWS: replace `postgres` with RDS and `s3` with real S3 (drop S3_ENDPOINT, use an instance role).
+services:
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_USER: lb, POSTGRES_PASSWORD: lb, POSTGRES_DB: legacy_bridge }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  s3:
+    # Dev-only S3-compatible store. MinIO's public images were not pullable when this was written (2026-11-14); swap it back in if yours are.
+    image: adobe/s3mock
+    environment: { COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: legacy-bridge }
+    ports: ["9090:9090"]
+  web:
+    build: { context: .., dockerfile: infra/images/web/Dockerfile }
+    env_file: ../.env
+    depends_on: [postgres, s3]
+    ports: ["3000:3000"]
+  worker:
+    # Needs a Linux host with gVisor: see infra/runsc/README.md. Docker socket is how the supervisor launches sandboxes.
+    build: { context: .., dockerfile: infra/images/worker/Dockerfile }
+    env_file: ../.env
+    depends_on: [postgres, s3]
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock", "/var/lib/lb/jobs:/var/lib/lb/jobs"]
+volumes: { pgdata: {} }

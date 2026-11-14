@@ -1,0 +1,25 @@
+import type { Job } from '../../server/jobs/queue';
+import { uuidv7 } from '../../server/db/ids';
+import { packTar } from '../../server/tar';
+import { putBlob } from '../../server/storage/blobs';
+import type { JobControl, WorkerEnv } from '../runtime';
+
+/** Builds a module revision with tsc (never npm scripts). Each run is a new attempt; compiler errors are `failed`, infra problems `error`. */
+export async function buildHandler(env: WorkerEnv, job: Job, ctl: JobControl) {
+  const moduleId = job.subject_id!;
+  const m = (await env.db.query<{ file_manifest: { path: string; sha256: string }[] }>('SELECT file_manifest FROM module_revisions WHERE id=$1 AND org_id=$2', [moduleId, job.org_id]))[0];
+  const files = await Promise.all(m.file_manifest.map(async (f) => ({ path: f.path, content: await env.store.get(job.org_id, f.sha256) })));
+  await ctl.checkpoint({ phase: 'building' });
+  const started = new Date();
+  const out = await env.build(files);
+  const log = await putBlob(env.db, env.store, job.org_id, Buffer.from(out.log), 'text/plain');
+  let outputSha: string | null = null;
+  if (out.status === 'succeeded') outputSha = (await putBlob(env.db, env.store, job.org_id, packTar(out.files), 'application/x-tar')).sha256;
+  await env.db.tx(async (t) => {
+    // attempt numbering is per (module, image); concurrent duplicates collide on the unique key and retry.
+    const a = (await t.query<{ n: number }>('SELECT COALESCE(MAX(attempt),0)+1 AS n FROM build_results WHERE module_revision_id=$1 AND build_image_digest=$2', [moduleId, out.image]))[0].n;
+    await t.query(`INSERT INTO build_results(id,org_id,module_revision_id,attempt,build_image_digest,toolchain,status,diagnostics,log_blob_sha256,output_blob_sha256,started_at,finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())`,
+      [uuidv7(), job.org_id, moduleId, a, out.image, JSON.stringify(out.toolchain), out.status, JSON.stringify(out.diagnostics), log.sha256, outputSha, started]);
+  });
+  if (out.status === 'error') throw new Error('build infrastructure error');
+}
