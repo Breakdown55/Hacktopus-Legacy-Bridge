@@ -14,4 +14,4 @@ Legacy Bridge turns functionality from legacy executables into reusable code for
 
 ## UI prototype
 
-Open `index.html` in a browser. Projects, notes, and photo or video attachments are saved in that browser. The prototype walks through all five workflow steps and exports a project plan. Code modernization and automated verification require a backend.
+Built with Next.js (App Router) and React. Run `npm install`, then `npm run dev` and open http://localhost:3000. Projects, notes, and photo or video attachments are saved in that browser. The prototype walks through all five workflow steps and exports a project plan. Code modernization and automated verification require a backend.
