@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Legacy Bridge project workspace">
+<title>Legacy Bridge</title>
+<style>
+:root{color-scheme:dark;--bg:#151619;--top:#1f2024;--surface:#282b30;--card:#303339;--border:#50545e;--text:#f8f9fa;--muted:#c2c6cf;--silver:#e2e6ec;--green:#83d7a0;--amber:#e8c183;--danger:#ffacb5;font:16px/1.5 Inter,system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}button,input,textarea{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--silver);outline-offset:4px}button:disabled{cursor:default;opacity:.5}[hidden]{display:none!important}p,h1,h2,h3{margin:0}svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}::selection{background:#bcf1ca;color:var(--bg)}
+.top{height:68px;border-bottom:1px solid #3d4047;background:var(--top);display:flex;align-items:center;padding:0 32px}.brand{display:flex;align-items:center;gap:12px;background:none;color:var(--text);border:0;padding:5px 0;font-size:19px;font-weight:700;letter-spacing:-.03em}.brand svg{width:25px;height:25px;color:var(--silver)}
+.picker{width:min(1072px,100%);padding:62px 24px 48px;margin:auto;text-align:center}.picker h1,.workspace h1{font-size:clamp(32px,5vw,48px);letter-spacing:-.04em;line-height:1.12}.picker>p,.workspace>p{color:var(--muted);margin-top:12px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:42px 0 39px}.project{position:relative;display:grid;grid-template-rows:auto 1fr;background:var(--card);border:1px solid var(--border);border-radius:15px;min-height:255px;overflow:hidden;text-align:center}.project:focus-within,.project:hover{border-color:#9297a2}.card-tools{display:flex;justify-content:space-between;align-items:center;padding:13px 14px 0;pointer-events:none}.card-tools>*{pointer-events:auto}.controls{display:flex;gap:3px;margin-left:auto}.icon{display:grid;place-items:center;width:34px;height:34px;background:transparent;color:var(--silver);border:0;border-radius:7px}.icon:hover{background:#414650}.delete:hover{color:var(--danger)}.icon svg{width:17px;height:17px}.needs{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:var(--amber);color:#302310;font-weight:750;font-size:14px}.project-main{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;width:100%;min-width:0;color:inherit;background:transparent;border:0;padding:6px 18px 22px;text-align:center}.project-main h2{font-size:20px;letter-spacing:-.025em;overflow-wrap:anywhere}.project-main p{color:var(--muted);overflow-wrap:anywhere}.card-rule{width:100%;height:1px;background:var(--border)}.project-main .edited{font-size:12px}.steps{--fill:0%;position:relative;width:84%;display:grid;grid-template-columns:repeat(5,1fr);align-items:center;justify-items:center;height:24px}.steps::before{content:"";position:absolute;left:10%;right:10%;height:2px;background:linear-gradient(90deg,var(--green) var(--fill),#8d929b var(--fill))}.dot{position:relative;display:grid;place-items:center;width:10px;height:10px;border-radius:50%;border:1px solid #c0c5ce;background:var(--card)}.dot.done{border-color:var(--green);background:var(--green)}.dot.current{width:16px;height:16px;border:2px solid var(--green)}.dot.current::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--green)}.add{display:inline-grid;justify-items:center;gap:8px;color:var(--text);background:none;border:0;font-weight:650}.add span{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:var(--silver);color:var(--bg)}.add:hover span,.primary:hover{background:white}
+.shell{min-height:calc(100vh - 68px);display:grid;grid-template-columns:222px minmax(0,1fr)}aside{background:var(--top);border-right:1px solid #3d4047;padding:22px 14px}aside h2{font-size:16px;margin:0 10px 12px}.project-nav{display:grid;gap:5px}.project-nav button{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:8px;text-align:left;padding:8px 10px;overflow-wrap:anywhere}.project-nav button:hover,.project-nav .selected{background:var(--card);color:var(--text)}.project-nav .selected{border-color:var(--border);font-weight:650}.nav-home{margin-top:19px}.workflow{min-width:0}.stage-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid #3d4047}.stage-nav button{font-size:14px;min-height:51px;color:var(--muted);background:transparent;border:0;border-bottom:2px solid transparent;padding:8px 2px}.stage-nav button[aria-current=step]{background:var(--card);border-bottom-color:var(--silver);color:var(--text);font-weight:700}.workspace{max-width:1150px;margin:auto;padding:43px 38px}.workspace h1{font-size:clamp(30px,4vw,43px)}.panels{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-top:28px}.panel{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:20px}.panel h2,.table h2{font-size:19px;margin-bottom:12px}.drop{display:grid;justify-items:center;align-content:center;gap:9px;border-style:dashed;text-align:center;min-height:192px;cursor:pointer}.drop:hover,.drop.over{border-color:var(--silver);background:var(--card)}.drop strong{font-size:19px}.drop span,.hint,.empty{color:var(--muted);font-size:14px}.drop span{max-width:100%;overflow-wrap:anywhere}.drop input{position:absolute;opacity:0;width:1px;height:1px}.drop:focus-within{outline:2px solid var(--silver);outline-offset:3px}.field{display:grid;gap:6px;text-align:left}.field input,.field textarea{width:100%;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);padding:9px 11px}.field textarea{resize:vertical;min-height:100px}.checks{display:grid;gap:10px}.checks label{display:flex;align-items:center;gap:10px}.checks input{width:18px;height:18px;accent-color:var(--green)}.actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:24px}.primary,.secondary{padding:9px 16px;border-radius:8px;font-weight:650;border:1px solid transparent}.primary{background:var(--silver);color:#151619}.secondary{background:transparent;color:var(--text);border-color:var(--border)}.secondary:hover{background:var(--card)}.table{margin-top:28px}.table table{width:100%;border-collapse:collapse;text-align:left}.table th,.table td{border-bottom:1px solid var(--border);padding:12px 10px;overflow-wrap:anywhere}.pass{color:var(--green)}.files{padding-left:20px;margin:0;overflow-wrap:anywhere}.notice{margin-top:20px;color:var(--amber);font-size:14px}.process{padding-left:22px;display:grid;gap:10px}.process li::marker{color:var(--silver)}.empty{grid-column:1/-1;margin:20px 0}.dialog{background:var(--top);color:var(--text);border:1px solid var(--border);border-radius:14px;padding:24px;width:min(440px,calc(100% - 28px))}.dialog::backdrop{background:#0009}.dialog h2{margin-bottom:10px}.dialog p{color:var(--muted);overflow-wrap:anywhere}.dialog .field{margin-top:14px}.danger{background:var(--danger);color:#2c0d10}.toast{position:fixed;right:18px;bottom:18px;max-width:calc(100% - 36px);padding:10px 14px;background:#363b43;border:1px solid #646a76;border-radius:8px}
+.context-panel{display:grid;align-content:start;gap:13px}.context-panel h2{margin:0}.context-panel .drop{min-height:92px;padding:12px;border:1px dashed #838995;border-radius:8px;background:var(--bg);gap:4px}.context-panel .drop.over,.context-panel .drop:hover{border-color:var(--silver);background:var(--card)}.context-panel .drop strong{font-size:14px}.attachments{list-style:none;margin:0;padding:0;display:grid;gap:6px}.attachments li{display:flex;align-items:center;gap:6px;min-width:0}.attachment-name{flex:1;min-width:0;padding:5px 0;text-align:left;overflow-wrap:anywhere;color:var(--silver);background:none;border:0;text-decoration:underline;text-underline-offset:3px;font-size:14px}.attachments .icon{flex:none}
+@media(max-width:840px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.shell{grid-template-columns:180px minmax(0,1fr)}.workspace{padding:35px 23px}}
+@media(max-width:580px){.top{height:58px;padding:0 18px}.picker{padding:36px 15px}.grid,.panels{grid-template-columns:1fr}.grid{margin:25px auto;max-width:380px}.shell{display:block}.workspace{padding:25px 15px}.stage-nav button{font-size:12px}.project-nav{display:flex;flex-wrap:wrap}.project-nav button{padding:5px 8px;font-size:13px}aside{border-right:0;border-bottom:1px solid #3d4047;padding:12px 14px}aside h2{margin:0 0 5px}.nav-home{margin-top:7px}.actions{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<header class="top"><button class="brand" id="home" aria-label="Legacy Bridge projects"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14h20M6 5v14M18 5v14M6 8c5 5 7 5 12 0"/></svg>Legacy Bridge</button></header>
+<main id="app"></main>
+<dialog class="dialog" id="dialog"></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+const app = document.querySelector('#app');
+const dialog = document.querySelector('#dialog');
+const toast = document.querySelector('#toast');
+const storageKey = 'legacy-bridge-projects-v1';
+const stages = ['Import','Select','Modernize','Verify','Export'];
+const icons = {
+  download:'<path d="M12 3v11m-4-4 4 4 4-4M5 15v5h14v-5"/>',
+  delete:'<path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  upload:'<path d="M12 16V4m-4 4 4-4 4 4M5 15v5h14v-5"/>',
+};
+const icon = name => '<svg viewBox="0 0 24 24" aria-hidden="true">'+icons[name]+'</svg>';
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+const now = Date.now();
+const templates = [
+  {id:'banking',name:'Banking tools',description:'Taxes and Stocks',complete:3,edited:now-172800000,needs:true,source:'banking.ts',features:['Taxes','Stocks','Deposit'],selected:['Taxes','Stocks'],demo:true},
+  {id:'billing',name:'Billing portal',description:'Invoicing and payments',complete:5,edited:now-604800000,source:'billing.ts',features:['Invoicing','Payments'],selected:['Invoicing','Payments'],demo:true},
+  {id:'inventory',name:'Inventory app',description:'Stock and ordering',complete:1,edited:now-10800000,source:'inventory.ts',features:['Stock','Ordering'],selected:['Stock','Ordering'],demo:true},
+];
+let projects;
+try {
+  const saved = JSON.parse(localStorage.getItem(storageKey));
+  projects = Array.isArray(saved) ? saved : templates;
+} catch { projects = templates; }
+let activeId = null;
+let stage = 0;
+let toastTimer;
+const current = () => projects.find(p => p.id === activeId);
+const age = time => {
+  const elapsed = Math.max(0, Math.floor((Date.now()-time)/60000));
+  if (elapsed < 1) return 'just now';
+  for (const [unit, size] of [['week',10080],['day',1440],['hour',60],['minute',1]]) {
+    if (elapsed >= size) { const n = Math.floor(elapsed/size); return n+' '+unit+(n!==1?'s':'')+' ago'; }
+  }
+};
+function notify(message) {
+  toast.textContent=message; toast.hidden=false; clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{toast.hidden=true;},3500);
+}
+function save(project) {
+  if (project) project.edited=Date.now();
+  try { localStorage.setItem(storageKey,JSON.stringify(projects)); }
+  catch { notify('Could not save projects in this browser.'); }
+}
+save();
+function openProject(id) {
+  activeId=id;
+  stage=Math.min(current().complete,4);
+  render();
+  window.scrollTo(0,0);
+}
+function home() { activeId=null; render(); window.scrollTo(0,0); }
+function progress(project) {
+  const complete=project.complete;
+  return '<div class="steps" role="img" aria-label="'+complete+' of 5 steps completed'+(complete<5?', '+stages[complete]+' in progress':'')+'" style="--fill:'+Math.min(complete,4)*25+'%">'+stages.map((_,i)=>'<span class="dot '+(i<complete?'done':i===complete?'current':'')+'"></span>').join('')+'</div>';
+}
+function card(project) {
+  const name=escapeHtml(project.name);
+  const id=escapeHtml(project.id);
+  return '<article class="project"><div class="card-tools">'+(project.needs?'<span class="needs" title="Needs your input" aria-label="Needs your input">?</span>':'')+
+    '<div class="controls"><button class="icon" data-download="'+id+'" aria-label="Download '+name+'">'+icon('download')+'</button><button class="icon delete" data-delete="'+id+'" aria-label="Delete '+name+'">'+icon('delete')+'</button></div></div>'+
+    '<button class="project-main" data-project="'+id+'"><h2>'+name+'</h2><span class="card-rule"></span><p>'+escapeHtml(project.description||'No description')+'</p>'+progress(project)+'<p class="edited">Edited '+age(project.edited)+'</p></button></article>';
+}
+const headings = [
+  ['Import source code','Upload the code you want to modernize and add any project context.'],
+  ['Select features','Choose the parts of the legacy application you want to modernize.'],
+  ['Modularize code','Review how the selected features will be separated and packaged.'],
+  ['Verify results','Review the verification checks before exporting.'],
+  ['Export package','Review the project contents before downloading.'],
+];
+function action(label, disabled=false) {
+  return '<div class="actions"><button class="primary" id="advance" '+(disabled?'disabled':'')+'>'+label+'</button></div>';
+}
+function workflow(project) {
+  const selected=project.selected;
+  if (stage===0) return '<div class="panels"><label class="panel drop" id="drop">'+icon('upload')+'<strong>Upload code</strong><span id="file-label">'+escapeHtml(project.source||'Drag a file here or browse')+'</span><input type="file" id="source-file" aria-label="Upload source code"></label><section class="panel context-panel" id="context-panel" aria-labelledby="context-title"><h2 id="context-title">Extra context</h2><label class="field">Notes<textarea id="context" placeholder="Add project notes or documentation">'+escapeHtml(project.notes)+'</textarea></label><label class="drop" id="media-drop">'+icon('upload')+'<strong>Drop photos or videos here</strong><span>or browse files</span><input type="file" id="context-media" aria-label="Attach photos or videos" accept="image/*,video/*" multiple></label><ul class="attachments" id="attachments" aria-label="Attached photos and videos"></ul></section></div>'+action('Start',!project.source);
+  if (stage===1) return '<div class="panels"><section class="panel"><h2>'+ (project.demo?'Detected features':'Features')+'</h2><div class="checks">'+(project.features.map((feature,i)=>'<label><input type="checkbox" data-feature="'+i+'" '+(selected.includes(feature)?'checked':'')+'>'+escapeHtml(feature)+'</label>').join('')||'<p class="hint">Add a feature to get started.</p>')+'</div></section><section class="panel"><h2>Did we miss something?</h2><form id="feature-form" class="field"><label for="feature">Feature name</label><input id="feature" name="feature" maxlength="70" required placeholder="Describe a feature to look for"><button class="secondary" type="submit">Add feature</button></form></section></div>'+action('Next',!selected.length);
+  if (stage===2) return '<div class="panels"><section class="panel"><h2>Packaging plan</h2><ol class="process"><li>Analyze structure</li><li>Isolate selected features</li><li>Prepare TypeScript modules</li></ol></section><section class="panel"><h2>Selected features</h2><ul class="files">'+selected.map(s=>'<li>'+escapeHtml(s)+'</li>').join('')+'</ul></section></div>'+action('Confirm plan');
+  if (stage===3) return '<section class="panel table"><table><thead><tr><th scope="col">Tool</th><th scope="col">Test</th></tr></thead><tbody>'+[...selected,'Package'].map(s=>'<tr><td>'+escapeHtml(s)+'</td><td class="'+(project.demo?'pass':'')+'">'+(project.demo?'Sample pass':'Pending')+'</td></tr>').join('')+'</tbody></table></section>'+(!project.demo?'<p class="notice">Automated verification requires a backend.</p>':'')+action('Review export');
+  return '<div class="panels"><section class="panel"><h2>New tools</h2><ul class="files">'+selected.map(s=>'<li>'+escapeHtml(s)+'.ts</li>').join('')+'</ul></section><section class="panel"><h2>Tests</h2><ul class="files">'+selected.map(s=>'<li>'+escapeHtml(s)+'.test.ts</li>').join('')+'</ul></section></div><p class="notice">The export contains project settings and the planned file list.</p>'+action('Download project plan');
+}
+function render() {
+  const project=current();
+  if (!project) {
+    app.innerHTML='<section class="picker"><h1>Your Projects</h1><p>Open a project or start a new one.</p><div class="grid">'+(projects.map(card).join('')||'<p class="empty">Your workspace is empty.</p>')+'</div><button class="add" id="new-project"><span>'+icon('plus')+'</span>New project</button></section>';
+    return;
+  }
+  app.innerHTML='<div class="shell"><aside aria-label="Project sidebar"><h2>Projects</h2><nav aria-label="Projects" class="project-nav">'+projects.map(p=>'<button data-project="'+escapeHtml(p.id)+'" '+(p.id===activeId?'class="selected" aria-current="page"':'')+'>'+escapeHtml(p.name)+'</button>').join('')+'</nav><button class="secondary nav-home" id="all-projects">All projects</button></aside><div class="workflow"><nav class="stage-nav" aria-label="Workflow steps">'+stages.map((label,i)=>'<button data-stage="'+i+'" '+(i===stage?'aria-current="step"':'')+' '+(i>project.complete?'disabled':'')+'>'+label+'</button>').join('')+'</nav><section class="workspace"><h1 tabindex="-1">'+headings[stage][0]+'</h1><p>'+headings[stage][1]+'</p>'+workflow(project)+'</section></div></div>';
+  if (stage===0) void showAttachments(project.id);
+}
+let mediaDatabase;
+function openMediaDatabase() {
+  if (!mediaDatabase) {
+    mediaDatabase=new Promise((resolve,reject)=>{
+      const request=indexedDB.open('legacy-bridge-context',1);
+      request.onupgradeneeded=()=>{
+        const attachments=request.result.createObjectStore('attachments',{keyPath:'id'});
+        attachments.createIndex('projectId','projectId');
+      };
+      request.onsuccess=()=>resolve(request.result);
+      request.onerror=()=>reject(request.error);
+    }).catch(error=>{mediaDatabase=undefined;throw error;});
+  }
+  return mediaDatabase;
+}
+async function accessAttachments(mode, operation) {
+  const database=await openMediaDatabase();
+  return new Promise((resolve,reject)=>{
+    const transaction=database.transaction('attachments',mode);
+    const result=operation(transaction.objectStore('attachments'));
+    transaction.oncomplete=()=>resolve(result?.result);
+    transaction.onabort=()=>reject(transaction.error);
+  });
+}
+async function showAttachments(projectId) {
+  const list=app.querySelector('#attachments');
+  if (!list || activeId!==projectId) return;
+  try {
+    const items=await accessAttachments('readonly',store=>store.index('projectId').getAll(projectId));
+    if (!list.isConnected) return;
+    list.innerHTML=items.map(({id,file})=>'<li><button class="attachment-name" data-media-download="'+id+'" aria-label="Download '+escapeHtml(file.name)+'">'+escapeHtml(file.name)+'</button><button class="icon delete" data-media-remove="'+id+'" aria-label="Remove '+escapeHtml(file.name)+'">'+icon('delete')+'</button></li>').join('');
+  } catch {
+    if (list.isConnected) list.innerHTML='<li class="hint">Attachments are unavailable in this browser.</li>';
+  }
+}
+async function attachMedia(files) {
+  const project=current();
+  const media=[...files].filter(file=>/^(image|video)\//.test(file.type));
+  if (!project || !files.length) return;
+  if (!media.length) return notify('Choose a photo or video file.');
+  try {
+    await accessAttachments('readwrite',store=>{
+      for (const file of media) store.add({id:crypto.randomUUID(),projectId:project.id,file});
+    });
+    save(project);
+    await showAttachments(project.id);
+    notify(media.length===files.length?'Attachments saved.':'Photos and videos saved. Other files were skipped.');
+  } catch { notify('Could not save attachments. Check available browser storage and try again.'); }
+}
+async function useAttachment(id, remove) {
+  const project=current();
+  if (!project) return;
+  try {
+    const item=await accessAttachments('readonly',store=>store.get(id));
+    if (item?.projectId!==project.id) return;
+    if (remove) {
+      await accessAttachments('readwrite',store=>store.delete(id));
+      save(project);
+      await showAttachments(project.id);
+      app.querySelector('#context-media')?.focus();
+      notify('Attachment removed.');
+    } else downloadFile(item.file,item.file.name);
+  } catch { notify('Could not access this attachment.'); }
+}
+function createProject() {
+  dialog.innerHTML='<form id="create-form"><h2>New project</h2><label class="field">Project name<input name="name" maxlength="80" required autofocus></label><label class="field">Description<input name="description" maxlength="140"></label><div class="actions"><button type="button" class="secondary" data-close>Cancel</button><button class="primary">Create project</button></div></form>';
+  dialog.showModal();
+}
+function download(project) {
+  const result={name:project.name,description:project.description,source:project.source||'',notes:project.notes||'',selectedFeatures:project.selected,plannedTools:project.selected.map(s=>s+'.ts'),plannedTests:project.selected.map(s=>s+'.test.ts')};
+  const name=(project.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'legacy-bridge')+'-plan.json';
+  downloadFile(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}),name);
+  notify('Project plan downloaded.');
+}
+function downloadFile(blob, name) {
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url; link.download=name;
+  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function selectFile(file) {
+  if (!file) return;
+  const project=current();
+  project.source=file.name;
+  save(project); render();
+}
+document.querySelector('#home').addEventListener('click',home);
+app.addEventListener('click',event=>{
+  const button=event.target.closest('button');
+  if (!button) return;
+  const {project,stage:targetStage,download:downloadId,delete:deleteId}=button.dataset;
+  if (button.dataset.mediaDownload) return void useAttachment(button.dataset.mediaDownload,false);
+  if (button.dataset.mediaRemove) return void useAttachment(button.dataset.mediaRemove,true);
+  if (project) return openProject(project);
+  if (button.id==='all-projects') return home();
+  if (button.id==='new-project') return createProject();
+  if (targetStage!==undefined) { stage=Number(targetStage); render(); app.querySelector('h1').focus(); return; }
+  if (downloadId) return download(projects.find(p=>p.id===downloadId));
+  if (deleteId) {
+    const item=projects.find(p=>p.id===deleteId);
+    dialog.innerHTML='<form id="delete-form" data-id="'+escapeHtml(deleteId)+'"><h2>Delete project?</h2><p>'+escapeHtml(item.name)+' will be removed from this browser.</p><div class="actions"><button type="button" class="secondary" data-close autofocus>Cancel</button><button class="primary danger">Delete project</button></div></form>';
+    return dialog.showModal();
+  }
+  if (button.id==='advance') {
+    const item=current();
+    if (stage===4) { item.complete=5; save(item); download(item); return; }
+    if (stage===3) item.needs=false;
+    item.complete=Math.max(item.complete,++stage);
+    save(item); render(); app.querySelector('h1').focus();
+  }
+});
+dialog.addEventListener('click',event=>{if(event.target.closest('[data-close]')) dialog.close();});
+dialog.addEventListener('submit',event=>{
+  event.preventDefault();
+  const form=event.target;
+  if (form.id==='delete-form') {
+    projects=projects.filter(p=>p.id!==form.dataset.id);
+    void accessAttachments('readwrite',store=>{
+      const request=store.index('projectId').openKeyCursor(form.dataset.id);
+      request.onsuccess=()=>{
+        const cursor=request.result;
+        if (cursor) { store.delete(cursor.primaryKey);cursor.continue(); }
+      };
+    }).catch(()=>notify('Project deleted, but attachment storage could not be cleaned up.'));
+    save(); dialog.close(); render(); notify('Project deleted.');
+    return;
+  }
+  const data=new FormData(form);
+  const name=data.get('name').trim();
+  if(!name){form.elements.name.focus();return;}
+  const item={id:globalThis.crypto?.randomUUID?.()??'project-'+Date.now(),name,description:data.get('description').trim(),complete:0,features:[],selected:[]};
+  projects.push(item);save(item);dialog.close();openProject(item.id);
+});
+app.addEventListener('submit',event=>{
+  if(event.target.id!=='feature-form') return;
+  event.preventDefault();
+  const feature=new FormData(event.target).get('feature').trim();
+  const item=current();
+  if(!feature || item.features.some(value=>value.toLowerCase()===feature.toLowerCase())) { notify('Enter a new feature name.');return; }
+  item.features.push(feature);item.selected.push(feature);save(item);render();app.querySelector('#feature').focus();
+});
+app.addEventListener('input',event=>{
+  if(event.target.id==='context'){const item=current();item.notes=event.target.value;save(item);}
+});
+app.addEventListener('change',event=>{
+  const field=event.target;
+  if(field.id==='source-file')return selectFile(field.files[0]);
+  if(field.id==='context-media'){
+    const files=[...field.files];
+    field.value='';
+    return void attachMedia(files);
+  }
+  if(field.dataset.feature===undefined)return;
+  const item=current();
+  const feature=item.features[Number(field.dataset.feature)];
+  item.selected=field.checked?[...item.selected,feature]:item.selected.filter(s=>s!==feature);
+  save(item);app.querySelector('#advance').disabled=!item.selected.length;
+});
+for(const type of ['dragover','dragleave','drop']){
+  app.addEventListener(type,event=>{
+    const context=event.target.closest('#context-panel');
+    const drop=context?.querySelector('#media-drop')??event.target.closest('#drop');
+    if(!drop)return;
+    if(type==='dragover'&&!event.dataTransfer.types.includes('Files'))return;
+    if(type==='drop'&&!event.dataTransfer.files.length)return;
+    event.preventDefault();
+    if(type==='dragleave'&&(context??drop).contains(event.relatedTarget))return;
+    drop.classList.toggle('over',type==='dragover');
+    if(type==='drop'){
+      if(context) void attachMedia(event.dataTransfer.files);
+      else selectFile(event.dataTransfer.files[0]);
+    }
+  });
+}
+render();
+</script>
+</body>
+</html>
