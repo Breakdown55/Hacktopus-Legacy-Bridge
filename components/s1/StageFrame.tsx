@@ -15,7 +15,8 @@ function useOperation() {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => () => pending.current?.abort(), []);
-  async function run(label: string, action: (signal: AbortSignal) => Promise<string>) {
+  /** `progress` replaces the status line while the action runs. An aborted action (the page was left) reports nothing. */
+  async function run(label: string, action: (signal: AbortSignal, progress: (text: string) => void) => Promise<string>) {
     if (pending.current) return;
     const controller = new AbortController();
     pending.current = controller;
@@ -23,7 +24,7 @@ function useOperation() {
     setFailed(false);
     setMessage(label);
     try {
-      const result = await action(controller.signal);
+      const result = await action(controller.signal, text => { if (!controller.signal.aborted) setMessage(text); });
       if (!controller.signal.aborted) setMessage(result);
     } catch (error) {
       if (!controller.signal.aborted) { setFailed(true); setMessage((error as Error).message); }

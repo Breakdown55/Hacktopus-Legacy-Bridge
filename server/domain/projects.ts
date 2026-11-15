@@ -1,6 +1,7 @@
 import type { Db } from '../db/db';
 import { uuidv7 } from '../db/ids';
 import { digest } from './canonical';
+import { targetOf } from '@lb/contracts';
 import { DomainError } from './errors';
 import { validateScopeEvidence } from './scope-evidence';
 
@@ -15,6 +16,14 @@ export async function getHeads(db: Db, orgId: string, projectId: string): Promis
   const r = await db.query<Heads>(`SELECT ${HEAD_COLUMNS.join(',')}, heads_version FROM projects WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL`, [projectId, orgId]);
   if (!r[0]) throw new DomainError('not_found', 404); // cross-org access is 404, never 403
   return r[0];
+}
+
+/** Generation, build and verification exist for TypeScript only. Other targets are recorded on the project and refused here. */
+export async function assertTargetSupported(db: Db, orgId: string, projectId: string) {
+  const r = await db.query<{ target_language: string }>('SELECT target_language FROM projects WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL', [projectId, orgId]);
+  if (!r[0]) throw new DomainError('not_found', 404);
+  const target = targetOf(r[0].target_language);
+  if (!target.supported) throw new DomainError('target_not_supported', 409, `Packaging for ${target.label} is not available yet. Only TypeScript modules can be generated, built and verified.`);
 }
 
 /** Compare-and-swap head move. Fails with 409 if another writer moved any head since `expectedVersion`. */

@@ -137,7 +137,8 @@ it('publishes pageable finding evidence, scoped citations, and deep pseudocode t
   expect(matches).toEqual([expect.objectContaining({ name: 'stopwords.txt', kind: 'string' })]);
   const candidates = await ok(call(api.candidatesList, { params: { sid } }));
   expect(candidates.run_id).toBe(index.id);
-  expect(candidates.items).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'entry', signals: expect.arrayContaining(['entry_point_name']) })]));
+  // Stripped wordfreq: the C runtime block (entry, FUN_00401120..160, _FINI_0, _INIT_0) and _DT_INIT/_DT_FINI are not features; the four program functions are.
+  expect(candidates.items.map((c: { title: string }) => c.title)).toEqual(['FUN_004011d6', 'FUN_00401231', 'FUN_00401286', 'FUN_00401399']);
 
   const target = inventory.find((item) => item.kind === 'function' && item.address === addAddress)!;
   expect(target).toBeDefined();

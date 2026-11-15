@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildReaAnalysisResult, normalizeReaEvidence } from '../../workers/analysis/rea/normalize';
+import { buildReaAnalysisResult, normalizeDecompileAll, normalizeReaEvidence } from '../../workers/analysis/rea/normalize';
 import { DockerReaAnalysisRunner } from '../../workers/analysis/rea/runner';
 import { buildElf } from '../helpers/elf';
 import { addAddress, fixtureArtifactSha, recording, replayImageDigest, replayRea } from '../helpers/rea-replay';
@@ -52,7 +52,13 @@ describe('REA analysis adapter', () => {
       expect(source).toBeDefined();
     }
     const launches = execute.mock.calls.map(([, args]) => args).filter(([command]) => command === 'run');
-    expect(launches).toHaveLength(3);
+    expect(launches).toHaveLength(4); // procedures, strings, decompile-all, xrefs
+    // One decompile-all pass gives pseudocode for every program function, with the REA header stripped and import stubs dropped.
+    const pseudocode = result.findings.filter((f) => f.kind === 'pseudocode');
+    expect(pseudocode.length).toBeGreaterThan(5);
+    expect(pseudocode.every((f) => f.content && !f.content.toString().startsWith('//') && !f.name?.startsWith('<EXTERNAL>'))).toBe(true);
+    expect(pseudocode.find((f) => f.address === '0x4011f1')?.content?.toString()).toContain('strcmp');
+    expect(result.coverage).toMatchObject({ pseudocode: pseudocode.length });
     for (const args of launches) {
       expect(args).toEqual(expect.arrayContaining([
         '--pull=never', '--network=none', '--read-only', '--user=1000:1000', '--cap-drop=ALL',
@@ -61,6 +67,18 @@ describe('REA analysis adapter', () => {
       const mounts = args.flatMap((arg, i) => arg === '--mount' ? [args[i + 1]] : []);
       expect(mounts).toEqual([`type=bind,src=${targetPath},dst=/input/artifact,readonly`]);
     }
+  });
+
+  it('rejects decompile-all output for another artifact or with altered function text', () => {
+    const packed = JSON.parse(recording('decompile_all').toString('utf8'));
+    const sha = JSON.parse(packed.envelope).subject.digest.sha256;
+    const bytes = (value: unknown) => Buffer.from(JSON.stringify(value));
+    expect((normalizeDecompileAll(bytes(packed), sha).result as unknown[]).length).toBeGreaterThan(5);
+    expect(() => normalizeDecompileAll(bytes(packed), '0'.repeat(64))).toThrow('invalid_provider_evidence');
+    const altered = structuredClone(packed);
+    altered.functions[0].content += ' ';
+    expect(() => normalizeDecompileAll(bytes(altered), sha)).toThrow('invalid_provider_evidence');
+    expect(() => normalizeDecompileAll(bytes({ envelope: packed.envelope }), sha)).toThrow('invalid_provider_evidence');
   });
 
   it('retains procedure findings and a precise limitation when the strings operation times out', async () => {

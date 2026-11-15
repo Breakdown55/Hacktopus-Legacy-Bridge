@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { downloadFile, projectPath } from '@/lib/projects';
 import { pickerProject, post, s1, s1Blob, s1Local, type S1Project } from '@/lib/s1-client';
 import type { Project } from '@/lib/types';
+import { TARGET_LANGUAGES } from '@lb/contracts';
 import Picker from '../Picker';
 
 export default function S1Home() {
@@ -39,7 +40,7 @@ export default function S1Home() {
       const name = String(values.get('name')).trim();
       const description = String(values.get('description')).trim();
       if (!name) throw new Error('Enter a project name.');
-      const project = await post<S1Project>('/projects', { name, description });
+      const project = await post<S1Project>('/projects', { name, description, target_language: String(values.get('target_language')) });
       dialog?.close();
       router.push(projectPath(project.id, 0));
     });
@@ -67,6 +68,11 @@ export default function S1Home() {
         <h2>New project</h2>
         <label className="field">Project name<input name="name" maxLength={80} required autoFocus /></label>
         <label className="field">Description<input name="description" maxLength={140} /></label>
+        <label className="field">Package for
+          <select name="target_language" defaultValue="typescript">
+            {TARGET_LANGUAGES.map(t => <option key={t.id} value={t.id}>{t.label}{t.supported ? '' : ' (not available yet)'}</option>)}
+          </select>
+        </label>
         <div className="actions">
           <button className="secondary" type="button" onClick={() => dialog?.close()}>Cancel</button>
           <button className="primary" disabled={busy}>Create project</button>

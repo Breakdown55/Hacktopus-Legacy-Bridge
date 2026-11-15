@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
-  buildReaAnalysisResult, canonicalReaAddress, normalizeReaEvidence, selectIndexAddress,
+  buildReaAnalysisResult, canonicalReaAddress, normalizeDecompileAll, normalizeReaEvidence, selectIndexAddress,
   type ReaAnalysisResult, type ReaEvidenceKind, type ReaOperation,
 } from './normalize';
 
@@ -12,7 +12,16 @@ export type { ReaAnalysisResult } from './normalize';
 const TARGET = '/input/artifact';
 const VERSIONS = { rea: '6.9.0', ghidra: '12.1' };
 const MAX_OPERATION_BYTES = 8 * 1024 * 1024;
-const ENTRYPOINT = 'mkdir -p "$HOME" && node -e \'process.exit(require("/opt/rea/node_modules/rea-agents/package.json").version === "6.9.0" ? 0 : 1)\' && exec node /opt/rea/node_modules/rea-agents/scripts/rea.mjs "$@"';
+const REA = 'node /opt/rea/node_modules/rea-agents/scripts/rea.mjs';
+const PREFLIGHT = 'mkdir -p "$HOME" && node -e \'process.exit(require("/opt/rea/node_modules/rea-agents/package.json").version === "6.9.0" ? 0 : 1)\'';
+const ENTRYPOINT = `${PREFLIGHT} && exec ${REA} "$@"`;
+// decompile-all writes one file per function. They stay on the container's tmpfs and come back on stdout as one JSON document
+// ({ envelope, functions }), so the container still sees nothing of the host except the read-only artifact.
+const PACK = 'const fs=require("fs");const ix=JSON.parse(fs.readFileSync("/tmp/lb-pc/decompile-index.json","utf8"));const functions=[];'
+  + 'for(const f of ix.functions){if(f.status!=="written"||typeof f.relative_path!=="string")continue;'
+  + 'functions.push({address:f.address,name:f.name,sha256:f.sha256,content:fs.readFileSync("/tmp/lb-pc/"+f.relative_path,"utf8")});}'
+  + 'process.stdout.write(JSON.stringify({envelope:fs.readFileSync("/tmp/lb-envelope.json","utf8"),functions}));';
+const DECOMPILE_ALL = `${PREFLIGHT} && ${REA} "$@" --output /tmp/lb-pc > /tmp/lb-envelope.json && exec node -e '${PACK}'`;
 
 export interface AnalyzeOptions {
   targetPath: string;
@@ -64,6 +73,7 @@ async function unsupportedReason(path: string): Promise<string | undefined> {
 
 function command(kind: ReaEvidenceKind, address?: string): string[] {
   if (kind === 'procedures' || kind === 'strings') return ['search', TARGET, '.+', '--kind', kind, '--mode', 'regex'];
+  if (kind === 'decompile_all') return ['decompile-all', TARGET];
   return [kind, TARGET, `ram:${address}`];
 }
 
@@ -119,6 +129,8 @@ export class DockerReaAnalysisRunner implements ReaAnalysisRunner {
     } else {
       await run('procedures');
       await run('strings');
+      // One pass that decompiles every function, so nothing has to be requested per function later.
+      await run('decompile_all');
       const selected = selectIndexAddress(operations[0]);
       if (selected) await run('xrefs', selected);
       else operations.push({ kind: 'xrefs', status: 'unavailable' });
@@ -138,7 +150,7 @@ export class DockerReaAnalysisRunner implements ReaAnalysisRunner {
       '--mount', `type=bind,src=${source},dst=${TARGET},readonly`,
     ];
     if (this.options.runtime) args.push(`--runtime=${this.options.runtime}`);
-    args.push('--entrypoint=/bin/sh', image, '-c', ENTRYPOINT, 'lb-rea', ...command(kind, address), '--provider', 'ghidra', '--json');
+    args.push('--entrypoint=/bin/sh', image, '-c', kind === 'decompile_all' ? DECOMPILE_ALL : ENTRYPOINT, 'lb-rea', ...command(kind, address), '--provider', 'ghidra', '--json');
 
     let check: Promise<void> | undefined;
     let interrupted: unknown;
@@ -166,7 +178,7 @@ export class DockerReaAnalysisRunner implements ReaAnalysisRunner {
     if (!raw) return { kind, address, status };
     if (raw.length > MAX_OPERATION_BYTES) return { kind, address, status: 'bounded' };
     try {
-      const evidence = normalizeReaEvidence(raw, kind, input.artifactSha256, address);
+      const evidence = kind === 'decompile_all' ? normalizeDecompileAll(raw, input.artifactSha256) : normalizeReaEvidence(raw, kind, input.artifactSha256, address);
       if (evidence.ghidraVersion === VERSIONS.ghidra) return { kind, address, status: 'complete', evidence };
     } catch { /* malformed evidence is never persisted */ }
     return { kind, address, status: 'invalid' };

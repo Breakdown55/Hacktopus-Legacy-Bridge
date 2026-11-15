@@ -4,7 +4,7 @@ import { packTar } from '../tar';
 import { digest } from './canonical';
 import type { Ctx } from './ctx';
 import { DomainError } from './errors';
-import { assertScopeApproved, getHeads, moveHead, nextNumber } from './projects';
+import { assertScopeApproved, getHeads, moveHead, nextNumber, assertTargetSupported } from './projects';
 import { safePath } from './sources';
 
 export const MODULE_LIMITS = { files: 50, bytes: 512 * 1024 };
@@ -55,6 +55,7 @@ async function filesOf(c: Ctx, moduleId: string): Promise<{ path: string; conten
 export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleInput, generated?: GeneratedInfo) {
   if ((i.origin === 'generated') !== !!generated) throw new DomainError('invalid_request', 422, 'generated revisions come from the generation worker');
   const heads = await getHeads(c.db, c.orgId, projectId);
+  await assertTargetSupported(c.db, c.orgId, projectId);
   await assertScopeApproved(c.db, c.orgId, projectId, i.scope_revision_id);
   let files = i.files ?? [];
   if (i.changes) {

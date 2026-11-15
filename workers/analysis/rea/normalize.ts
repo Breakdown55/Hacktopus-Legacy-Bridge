@@ -1,8 +1,11 @@
+import { createHash } from 'node:crypto';
+
 const OPERATIONS = {
   procedures: 'search_procedures',
   strings: 'search_strings',
   xrefs: 'xrefs',
   decompile: 'procedure_pseudo_code',
+  decompile_all: 'decompile_all',
 } as const;
 const MAX_FINDINGS = 8192;
 
@@ -42,6 +45,9 @@ interface ReaEvidence {
   limitations: string[];
   result: unknown[] | string | null;
 }
+
+/** One decompiled function from a decompile-all pass. */
+interface DecompiledFunction { address: string; name?: string; content: string }
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || Array.isArray(value) || typeof value !== 'object') return {};
@@ -90,6 +96,46 @@ export function normalizeReaEvidence(raw: Buffer, kind: ReaEvidenceKind, sha: st
     limitations: Array.isArray(data.limitations) ? data.limitations.filter((item): item is string => typeof item === 'string') : [],
     result: result as ReaEvidence['result'],
   };
+}
+
+/**
+ * decompile-all evidence: the runner returns { envelope, functions }. The envelope is REA's own Evidence record (kept verbatim as raw
+ * evidence); each function's text must match the digest REA recorded for it. Import stubs are not kept.
+ */
+export function normalizeDecompileAll(raw: Buffer, sha: string): ReaEvidence {
+  const outer = object(JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw)));
+  if (typeof outer.envelope !== 'string' || !Array.isArray(outer.functions)) throw new Error('invalid_provider_evidence');
+  const data = object(JSON.parse(outer.envelope));
+  const result = object(data.normalized_result);
+  const provider = object(result.provider);
+  const evidenceId = data.evidence_id;
+  if (data.operation !== OPERATIONS.decompile_all || provider.id !== 'ghidra' || typeof provider.version !== 'string'
+    || object(object(data.subject).digest).sha256 !== sha || result.target_sha256 !== sha
+    || typeof evidenceId !== 'string' || !/^ev_[a-f0-9]{64}$/.test(evidenceId)) {
+    throw new Error('invalid_provider_evidence');
+  }
+  const functions: DecompiledFunction[] = [];
+  for (const item of outer.functions) {
+    const fields = object(item);
+    const address = canonicalReaAddress(fields.address);
+    if (!address || typeof fields.content !== 'string' || typeof fields.sha256 !== 'string'
+      || createHash('sha256').update(fields.content).digest('hex') !== fields.sha256) throw new Error('invalid_provider_evidence');
+    if (typeof fields.name === 'string' && fields.name.startsWith('<EXTERNAL>')) continue;
+    functions.push({ address, name: typeof fields.name === 'string' ? fields.name : undefined, content: fields.content });
+  }
+  return {
+    raw: Buffer.from(outer.envelope), id: evidenceId, ghidraVersion: provider.version,
+    limitations: Array.isArray(data.limitations) ? data.limitations.filter((item): item is string => typeof item === 'string') : [],
+    result: functions,
+  };
+}
+
+/** REA prefixes each exported function with `// ...` provenance lines; the evidence record already carries them. */
+function pseudocodeBody(content: string): string {
+  const lines = content.split('\n');
+  let i = 0;
+  while (i < lines.length && (lines[i].startsWith('//') || !lines[i].trim())) i++;
+  return lines.slice(i).join('\n');
 }
 
 function inventoryFindings(kind: 'procedures' | 'strings', evidence: ReaEvidence): ReaFinding[] {
@@ -166,6 +212,15 @@ export function buildReaAnalysisResult(options: {
     const normalized: ReaFinding[] = [];
     if (kind === 'procedures' || kind === 'strings') {
       normalized.push(...inventoryFindings(kind, observed));
+    } else if (kind === 'decompile_all') {
+      for (const item of observed.result as DecompiledFunction[]) {
+        const body = pseudocodeBody(item.content);
+        if (body.trim() && Buffer.byteLength(body) <= 2 * 1024 ** 2) normalized.push({
+          kind: 'pseudocode', stableKey: `pseudocode:${item.address}`, address: item.address, name: item.name, authority: 'tool_inferred',
+          attributes: { language: 'c-pseudocode' }, location: { address: item.address },
+          providerEvidenceId: observed.id, content: Buffer.from(body),
+        });
+      }
     } else if (kind === 'xrefs' && address) {
       for (const item of observed.result as unknown[]) {
         const from = evidenceAddress(item);

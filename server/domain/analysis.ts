@@ -249,6 +249,16 @@ export async function getRawEvidence(c: Ctx, runId: string, id: string) {
   return raw;
 }
 
+/** C runtime and loader boilerplate, including Ghidra's synthesized names for it. Never a feature of the program. */
+const RUNTIME_FUNCTION = /^(_start|entry|_init|_fini|_dl_\w+|deregister_tm_clones|register_tm_clones|__do_global_dtors_aux|frame_dummy|__libc_csu_\w+|_DT_\w+|_(INIT|FINI)_\d+|__\w+)$/;
+const MAX_CANDIDATES = 12;
+
+/**
+ * Functions that look like the program's own. Compilers lay a binary out as: PLT stubs, `_start`, a short block of C runtime
+ * functions that ends with `frame_dummy` (a thunk to `register_tm_clones`), then the program's functions, then `_fini`.
+ * Ghidra marks that last runtime function as a thunk to an internal address, with or without symbols, so the program starts after it.
+ * Import thunks, externals and runtime names are dropped. This is a layout heuristic for GCC-style binaries and can be wrong for others.
+ */
 export async function listCandidates(c: Ctx, sourceId: string) {
   const run = await pickRun(c, sourceId);
   if (!run) return { items: [], run_id: null };
@@ -256,7 +266,6 @@ export async function listCandidates(c: Ctx, sourceId: string) {
     `SELECT id,kind,name,address,location,attributes FROM findings WHERE org_id=$1 AND source_revision_id=$2
      AND analysis_run_id=$3 AND kind IN ('function','xref') ORDER BY stable_key`, [c.orgId, sourceId, run.id],
   );
-  const functions = rows.filter(row => row.kind === 'function' && row.address && row.attributes.thunk !== true);
   const refsByTarget = new Map<string, string[]>();
   for (const row of rows) {
     const target = row.location.target;
@@ -265,15 +274,26 @@ export async function listCandidates(c: Ctx, sourceId: string) {
     if (refs.length < 4) refs.push(row.id);
     refsByTarget.set(target, refs);
   }
-  const items = functions.map(row => {
+  const num = (a: string | null | undefined) => (a ? parseInt(a.replace(/^0x/i, ''), 16) : NaN);
+  const functions = rows.filter(r => r.kind === 'function' && Number.isFinite(num(r.address)) && !r.name?.startsWith('<EXTERNAL>'))
+    .sort((a, b) => num(a.address) - num(b.address));
+  const entry = functions.find(r => r.name === 'entry' || r.name === '_start');
+  const target = (r: (typeof functions)[number]) => (r.attributes.procedure as { thunk_target?: string | null } | undefined)?.thunk_target;
+  // First internal thunk after the entry point: the end of the C runtime block.
+  const crtEnd = functions.find(r => r.attributes.thunk === true && (!entry || num(r.address) > num(entry.address))
+    && typeof target(r) === 'string' && !String(target(r)).startsWith('EXTERNAL') && num(target(r)) < num(r.address) && num(target(r)) > num(entry?.address ?? '0'));
+  const from = num((crtEnd ?? entry)?.address ?? '0');
+  const program = functions.filter(r => r.attributes.thunk !== true && num(r.address) > from && !(r.name && RUNTIME_FUNCTION.test(r.name)));
+  const items = program.map(row => {
     const linked = refsByTarget.get(row.address!) ?? [];
-    const entry = /^(main|entry|_start)$/.test(row.name ?? '');
+    const main = row.name === 'main';
     return {
       title: row.name ?? row.address!,
       findings: [row.id, ...linked],
-      signals: [...(entry ? ['entry_point_name'] : []), ...(linked.length ? ['incoming_references'] : [])],
-      score: Number(entry) * 5 + linked.length,
+      signals: [...(main ? ['entry_point_name'] : []), ...(linked.length ? ['incoming_references'] : [])],
+      score: Number(main) * 1000 + linked.length,
+      at: num(row.address),
     };
-  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
-  return { items: items.slice(0, 12).map(({ score, ...item }) => item), run_id: run.id };
+  }).sort((a, b) => b.score - a.score || a.at - b.at);
+  return { items: items.slice(0, MAX_CANDIDATES).map(({ score, at, ...item }) => item), run_id: run.id };
 }

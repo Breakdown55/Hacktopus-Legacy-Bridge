@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { targetOf } from '@lb/contracts';
 import { post, s1, waitJob } from '@/lib/s1-client';
 import { useS1Project } from './ProjectShell';
 import { Continue, useResource, type Operation } from './StageFrame';
@@ -14,6 +15,7 @@ type ModuleStatus = {
   build: { status: string; diagnostics: Diagnostic[] };
 };
 const originLabel = { generated: 'Generated', user_edit: 'Edited by a person', customer_upload: 'Uploaded' } as const;
+const Q = ({ why }: { why: string }) => <span className="s1-q" title={why} aria-label="The model has a question here" role="img">?</span>;
 const where = (d: Diagnostic) => (d.file ? d.file + (d.line ? ':' + d.line : '') + ' ' : '') + (d.code ? d.code + ': ' : '') + (d.message ?? '');
 
 export default function Modernize({ op }: { op: Operation }) {
@@ -29,6 +31,7 @@ export default function Modernize({ op }: { op: Operation }) {
   const errors = mod?.build.diagnostics.filter(d => d.severity !== 'warning') ?? [];
   const warnings = mod?.build.diagnostics.filter(d => d.severity === 'warning') ?? [];
   const outdated = !!mod && mod.scope_revision_id !== approved;
+  const target = targetOf(project.target_language);
 
   useEffect(() => {
     if (!open || !current) { setContent(null); return; }
@@ -74,12 +77,14 @@ export default function Modernize({ op }: { op: Operation }) {
   return <>
     <section className="panel s1-panel s1-fields">
       <h2>Generate from the approved scope</h2>
+      <p className="hint">Packaging for: <strong>{target.label}</strong></p>
+      {!target.supported && <p role="alert">Packaging for {target.label} is not available yet. Only TypeScript modules can be generated, built and verified, so nothing can be produced for this project.</p>}
       {!approved && <p className="hint">Approve a scope on Select first.</p>}
       <p className="hint">Sends the approved scope and the cited evidence to the model provider. Your organization must allow this; otherwise upload or edit a module instead.</p>
       <label className="field">What should it focus on or fix (optional)<textarea rows={2} maxLength={2000} value={instructions} onChange={e => setInstructions(e.target.value)} disabled={op.busy} /></label>
       <div className="s1-row">
-        <button className="primary" type="button" disabled={op.busy || !approved} onClick={() => generate(false)}>Generate TypeScript</button>
-        <button className="secondary" type="button" disabled={op.busy || !approved || !current} onClick={() => generate(true)}>Repair current module</button>
+        <button className="primary" type="button" disabled={op.busy || !approved || !target.supported} onClick={() => generate(false)}>Generate TypeScript</button>
+        <button className="secondary" type="button" disabled={op.busy || !approved || !current || !target.supported} onClick={() => generate(true)}>Repair current module</button>
       </div>
     </section>
 
@@ -91,14 +96,15 @@ export default function Modernize({ op }: { op: Operation }) {
         <p role="status">Revision {mod.number} · {originLabel[mod.origin]}{mod.generator?.model ? ' by ' + mod.generator.provider + ' ' + mod.generator.model : ''} · Build: {mod.build.status}</p>
         {outdated && <p role="alert">This module was built for an earlier scope revision. Generate or upload a module for the approved scope.</p>}
         {errors.length > 0 && <><h3>Build errors</h3><ul className="s2-notes">{errors.map((d, i) => <li key={i}>{where(d)}</li>)}</ul></>}
-        {mod.untranslated.length > 0 && <><h3>Not translated</h3>
-          <ul className="s2-notes">{mod.untranslated.map(u => <li key={u.id}><strong>{u.id}</strong>{u.behaviorId ? ' (behavior ' + u.behaviorId + ')' : ''}: {u.reason}{u.file ? ' · ' + u.file + (u.line ? ':' + u.line : '') : ''}</li>)}</ul></>}
+        {mod.untranslated.length > 0 && <><h3>Questions from the model</h3>
+          <ul className="s2-notes">{mod.untranslated.map(u => <li key={u.id}><Q why={u.reason} /> {u.reason}{u.file ? ' · ' + u.file + (u.line ? ':' + u.line : '') : ''}</li>)}</ul></>}
         {warnings.length > 0 && <><h3>Warnings</h3><ul className="s2-notes">{warnings.map((d, i) => <li key={i}>{where(d)}</li>)}</ul></>}
         <h3>Files</h3>
-        <ul className="s3-chips">{mod.file_manifest.map(f => <li key={f.path}><button type="button" className="secondary" aria-pressed={open === f.path} disabled={op.busy} onClick={() => setOpen(open === f.path ? null : f.path)}>{f.path}</button></li>)}</ul>
+        <ul className="s3-chips">{mod.file_manifest.map(f => <li key={f.path}><button type="button" className="secondary" aria-pressed={open === f.path} disabled={op.busy} onClick={() => setOpen(open === f.path ? null : f.path)}>{f.path}{mod.untranslated.some(u => u.file === f.path) && <> <Q why="The model has a question in this file" /></>}</button></li>)}</ul>
         {open && !content && <p role="status">Loading file…</p>}
         {content && <>
           <label className="field">{content.path}<textarea rows={16} spellCheck={false} value={content.text} onChange={e => setContent({ ...content, text: e.target.value })} disabled={op.busy} /></label>
+          {mod.untranslated.filter(u => u.file === content.path).map(u => <p key={u.id} className="hint"><Q why={u.reason} /> {u.line ? 'Line ' + u.line + ': ' : ''}{u.reason}</p>)}
           <div className="s1-row">
             <button type="button" className="primary" disabled={op.busy || content.text === content.original || !approved} onClick={saveEdit}>Save as new revision</button>
             <button type="button" className="secondary" disabled={op.busy} onClick={() => setOpen(null)}>Close</button>
@@ -112,7 +118,7 @@ export default function Modernize({ op }: { op: Operation }) {
       <h2>Upload your own module</h2>
       <label className="field">Replacement TypeScript files<input type="file" accept=".ts" multiple disabled={op.busy} onChange={e => setFiles(Array.from(e.target.files ?? []))} /></label>
       <p className="hint">Include index.ts with an exported run function.</p>
-      <button className="primary" type="button" onClick={upload} disabled={op.busy || !files.length || !approved}>Upload and build module</button>
+      <button className="primary" type="button" onClick={upload} disabled={op.busy || !files.length || !approved || !target.supported}>Upload and build module</button>
     </section>
     <Continue stage={3} />
   </>;

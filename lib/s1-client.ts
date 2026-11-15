@@ -8,6 +8,7 @@ export type S1Project = {
   id: string;
   name: string;
   description: string;
+  target_language: string;
   created_at: string;
   progress: { completed_steps: number; needs_input: { step: string; code: string }[] };
   heads: {
@@ -77,6 +78,12 @@ export async function waitJob(id: string, signal: AbortSignal) {
     await new Promise(resolve => setTimeout(resolve, 1300));
   }
   signal.throwIfAborted();
+}
+
+/** Waits for a job whose failure should not stop the caller. Leaving the page still stops it: an aborted wait always throws. */
+export async function settleJob(id: string, signal: AbortSignal): Promise<boolean> {
+  try { await waitJob(id, signal); return true; }
+  catch (error) { signal.throwIfAborted(); void error; return false; }
 }
 
 export async function sendArtifact(project: string, file: File, artifactPath: string, role: string) {

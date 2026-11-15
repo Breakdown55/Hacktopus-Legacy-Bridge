@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ScopeDocV1 } from '@lb/contracts';
+import { ScopeDocV1, TARGET_IDS } from '@lb/contracts';
 import { uuidv7 } from '../db/ids';
 import { FINDING_KINDS, getFinding, getRawEvidence, listCandidates, listFindings, listNativeRuns, queueNativeAnalysis } from '../domain/analysis';
 import { cancel } from '../jobs/queue';
@@ -52,10 +52,10 @@ async function live<T>(c: Ctx, table: LiveTable, id: string, fn: () => Promise<T
 
 export const api = {
   projectsList: route({ role: 'viewer' }, async ({ ctx, url }) => ({ body: await listProjects(ctx, pageLimit(url), url.searchParams.get('cursor')) })),
-  projectsCreate: route({ role: 'editor', idempotent: true, body: z.object({ name: z.string().min(1).max(200), description: z.string().max(2000).default(''), objectives: z.string().max(5000).default('') }) }, async ({ ctx, body }) => {
+  projectsCreate: route({ role: 'editor', idempotent: true, body: z.object({ name: z.string().min(1).max(200), description: z.string().max(2000).default(''), objectives: z.string().max(5000).default(''), target_language: z.enum(TARGET_IDS).default('typescript') }) }, async ({ ctx, body }) => {
     await assertProjectQuota(ctx);
     const id = uuidv7();
-    await ctx.db.query('INSERT INTO projects(id,org_id,name,description,objectives,created_by) VALUES ($1,$2,$3,$4,$5,$6)', [id, ctx.orgId, body.name, body.description, body.objectives, ctx.userId]);
+    await ctx.db.query('INSERT INTO projects(id,org_id,name,description,objectives,created_by,target_language) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, ctx.orgId, body.name, body.description, body.objectives, ctx.userId, body.target_language]);
     await ctx.db.query(`INSERT INTO events(org_id,project_id,actor_id,type,subject_type,subject_id) VALUES ($1,$2,$3,'project.created','project',$2::uuid::text)`, [ctx.orgId, id, ctx.userId]);
     return { status: 201, body: await getProject(ctx, id) };
   }),

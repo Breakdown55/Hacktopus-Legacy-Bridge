@@ -51,7 +51,7 @@ export async function getProgress(c: Ctx, projectId: string) {
 }
 
 export async function getProject(c: Ctx, projectId: string) {
-  const p = (await c.db.query<{ id: string; name: string; description: string; objectives: string; created_at: string }>('SELECT id, name, description, objectives, created_at FROM projects WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL', [projectId, c.orgId]))[0];
+  const p = (await c.db.query<{ id: string; name: string; description: string; objectives: string; created_at: string; target_language: string }>('SELECT id, name, description, objectives, created_at, target_language FROM projects WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL', [projectId, c.orgId]))[0];
   if (!p) throw new DomainError('not_found', 404);
   const heads = await getHeads(c.db, c.orgId, projectId);
   return { ...p, progress: await getProgress(c, projectId), heads };

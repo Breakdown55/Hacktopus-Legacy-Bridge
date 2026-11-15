@@ -2,7 +2,7 @@ import { enqueue } from '../jobs/queue';
 import type { Ctx } from './ctx';
 import { DomainError } from './errors';
 import { assertGenerationQuota } from './quotas';
-import { assertScopeApproved, getHeads } from './projects';
+import { assertScopeApproved, assertTargetSupported, getHeads } from './projects';
 
 export interface GenerationInput { scope_revision_id: string; parent_id?: string | null; instructions?: string }
 
@@ -13,6 +13,7 @@ export interface GenerationInput { scope_revision_id: string; parent_id?: string
 export async function requestGeneration(c: Ctx, projectId: string, i: GenerationInput) {
   await assertGenerationQuota(c);
   const heads = await getHeads(c.db, c.orgId, projectId);
+  await assertTargetSupported(c.db, c.orgId, projectId);
   await assertScopeApproved(c.db, c.orgId, projectId, i.scope_revision_id);
   if (heads.approved_scope_revision_id !== i.scope_revision_id) throw new DomainError('scope_not_current', 409, 'Generate from the currently approved scope revision.');
   const org = (await c.db.query<{ external_model_allowed: boolean }>('SELECT external_model_allowed FROM organizations WHERE id=$1', [c.orgId]))[0];

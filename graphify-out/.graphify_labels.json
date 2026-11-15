@@ -1,5 +1,4 @@
 {
-  "4": "Compare Engine",
   "6": "Docker Compose Infra",
   "7": "Status Contracts",
   "9": "tsconfig Settings",
@@ -36,7 +35,6 @@
   "45": "API Route probe",
   "46": "API Route [sid]",
   "47": "API Route reference-outputs",
-  "48": "API Route complete",
   "49": "API Route results",
   "50": "API Route [vrid]",
   "51": "Next Config",
