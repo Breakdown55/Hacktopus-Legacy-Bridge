@@ -10,7 +10,7 @@ import { createModuleRevision, getModuleFiles } from '../domain/modules';
 import { createScopeRevision, decideScope, getHeads, putScopeDraft } from '../domain/projects';
 import { getScopeRevision, listScopeRevisions } from '../domain/scope';
 import { requestGeneration } from '../domain/generation';
-import { getActivity, getJob, getModule, getProject, getVerificationRun, listBuilds, listProjects, listResults } from '../domain/queries';
+import { getActivity, getJob, getModule, getProject, getVerificationRun, listBuilds, listProjects, listResults, getResult } from '../domain/queries';
 import { completeUpload, createUpload, getSourceStatus, recordExecutionConsent, sealSourceRevision } from '../domain/sources';
 import { createVerificationRun } from '../domain/verification';
 import { decodeCursor, pageLimit, problem, route } from '../http/handler';
@@ -121,6 +121,7 @@ export const api = {
   verificationCreate: route<P, any>({ role: 'editor', idempotent: true, body: z.object({ environment_id: uuid, module_revision_id: uuid.optional(), case_set_revision_id: uuid.optional(), comparison_policy_id: uuid.optional() }) }, async ({ ctx, params, body }) => { const r = await createVerificationRun(ctx, params.pid, body); return { status: 202, body: r }; }),
   verificationGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getVerificationRun(ctx, params.vrid) })),
   verificationResults: route<P>({ role: 'viewer' }, async ({ ctx, params, url }) => ({ body: await listResults(ctx, params.vrid, url.searchParams.get('outcome'), pageLimit(url), url.searchParams.get('cursor')) })),
+  verificationResultGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getResult(ctx, params.rsid) })),
 
   exportCreate: route<P, any>({ role: 'editor', idempotent: true, body: z.object({ verification_run_id: uuid, include_original_binary: z.boolean().optional(), allow_partial: z.boolean().optional() }) }, async ({ ctx, params, body }) => ({ status: 202, body: await createExport(ctx, params.pid, body) })),
   exportGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getExport(ctx, params.eid) })),

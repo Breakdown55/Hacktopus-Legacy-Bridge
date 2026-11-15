@@ -17,7 +17,7 @@ const obs = (stdout: string, o: { code?: number; stderr?: string; complete?: boo
   };
   return { observation, stdout: so, stderr: se, files };
 };
-const policy = (r: object = {}) => PolicyRules.parse({ engine: '1.0.0', ...r });
+const policy = (r: object = {}) => PolicyRules.parse({ engine: '1.1.0', ...r });
 const exact = policy();
 
 describe('outcomes', () => {
@@ -60,10 +60,24 @@ describe('policies', () => {
     const exactWithNumeric = policy({ numeric: { applies_to: 'stdout', tokenizer: 'decimal-v1', abs: 0.01, rel: 0 } });
     expect(compare(exactWithNumeric, obs('3.14'), obs('3.141')).outcome).toBe('difference'); // exact is never loosened
     expect(() => policy({ stdout: { mode: 'tolerance' } })).toThrow();
-    expect(compare(p, obs('total 3.14\n'), obs('total 3.141\n')).outcome).toBe('match');
+    const tol = compare(p, obs('total 3.14\n'), obs('total 3.141\n'));
+    expect(tol).toMatchObject({ outcome: 'match', raw_equal: false, normalized: true });
+    expect(tol.normalization_trace).toEqual([{ channel: 'stdout', normalizer: 'tolerance:decimal-v1', changed_bytes_expected: 2, changed_bytes_actual: 2, params: { abs: 0.01, rel: 0 } }]);
     expect(compare(p, obs('total 3.14\n'), obs('total 3.2\n')).outcome).toBe('difference');
     expect(compare(p, obs('total 3.14\n'), obs('sum 3.14\n')).outcome).toBe('difference');
     expect(toleranceEqual(Buffer.from('1 2'), Buffer.from('1'), 1, 0)).toBe(false);
+  });
+  it('ignore on exit and files also requires a reason', () => {
+    expect(() => policy({ exit: { mode: 'ignore' } })).toThrow(/reason/);
+    expect(() => policy({ files: { include: [], mode: 'ignore', reason: '  ' } })).toThrow(/reason/);
+    expect(() => policy({ stdout: { mode: 'ignore', reason: ' ' } })).toThrow(/reason/);
+    expect(policy({ exit: { mode: 'ignore', reason: 'exit codes renumbered' } }).exit.mode).toBe('ignore');
+  });
+  it('normalizers are rejected unless mode is normalized (never silently dropped)', () => {
+    const n = [{ id: 'line-endings', version: 1 }];
+    expect(() => policy({ stdout: { mode: 'tolerance', normalizers: n }, numeric: { applies_to: 'stdout', tokenizer: 'decimal-v1', abs: 1, rel: 0 } })).toThrow(/normalizers are only allowed when mode is/);
+    expect(() => policy({ stdout: { mode: 'exact', normalizers: n } })).toThrow(/normalized/);
+    expect(() => policy({ stderr: { mode: 'ignore', reason: 'x', normalizers: n } })).toThrow(/normalized/);
   });
   it('files: missing, content, unexpected', () => {
     const p = policy({ files: { include: ['out/**'], mode: 'exact' } });
@@ -102,5 +116,46 @@ describe('properties', () => {
   it('symmetric under normalizers', () => {
     const p = policy({ stdout: { mode: 'normalized', normalizers: [{ id: 'line-endings', version: 1 }, { id: 'trailing-whitespace', version: 1 }] } });
     fc.assert(fc.property(s, s, (a, b) => compare(p, obs(a), obs(b)).outcome === compare(p, obs(b), obs(a)).outcome));
+  });
+  it('compare(x,x)=match for any complete untruncated observation (exit, stderr, files vary too)', () =>
+    fc.assert(fc.property(s, s, fc.integer({ min: 0, max: 255 }), fc.dictionary(fc.constantFrom('out/a', 'out/b/c', 'other'), s, { maxKeys: 3 }), (so, se, code, files) => {
+      const p = policy({ files: { include: ['out/**'], mode: 'exact' } });
+      const x = obs(so, { stderr: se, code, files });
+      const r = compare(p, x, obs(so, { stderr: se, code, files }));
+      return r.outcome === 'match' && r.raw_equal === true && r.normalized === false && r.normalization_trace.length === 0;
+    })));
+  it('byte mutation at index i => difference whose first_difference.byte is exactly i', () =>
+    fc.assert(fc.property(s.filter((x) => x.length > 0), fc.nat(), fc.integer({ min: 1, max: 255 }), (x, i, delta) => {
+      const k = i % x.length;
+      const y = x.slice(0, k) + String.fromCharCode((x.charCodeAt(k) + delta) & 0xff) + x.slice(k + 1);
+      const r = compare(exact, obs(x), obs(y));
+      return r.outcome === 'difference' && (r.differences[0] as { first_difference: { byte: number } }).first_difference.byte === k;
+    })));
+  it('a mutation fully covered by a declared normalizer matches with normalized=true and raw_equal=false', () => {
+    const p = policy({ stdout: { mode: 'normalized', normalizers: [{ id: 'trailing-whitespace', version: 1 }] } });
+    fc.assert(fc.property(fc.stringMatching(/^[a-z]{0,10}$/), fc.stringMatching(/^[ \t]{1,5}$/), (base, pad) => {
+      const r = compare(p, obs(base), obs(base + pad));
+      return r.outcome === 'match' && r.normalized === true && r.raw_equal === false
+        && r.normalization_trace.length === 1 && r.normalization_trace[0].changed_bytes_actual === pad.length;
+    }));
+  });
+  describe('tolerance properties', () => {
+    const abs = 0.5;
+    const tol = policy({ stdout: { mode: 'tolerance' }, numeric: { applies_to: 'stdout', tokenizer: 'decimal-v1', abs, rel: 0 } });
+    const base = fc.integer({ min: -1000, max: 1000 });
+    it('perturbation within abs matches (raw differs, trace says tolerance); beyond abs differs', () =>
+      fc.assert(fc.property(base, fc.integer({ min: 1, max: 49 }), fc.integer({ min: 51, max: 500 }), fc.boolean(), (n, inside, outside, neg) => {
+        const sign = neg ? -1 : 1;
+        const near = n + (sign * inside) / 100, far = n + (sign * outside) / 100;
+        const m = compare(tol, obs(`v ${n}\n`), obs(`v ${near.toFixed(2)}\n`));
+        const d = compare(tol, obs(`v ${n}\n`), obs(`v ${far.toFixed(2)}\n`));
+        return m.outcome === 'match' && m.raw_equal === false && m.normalization_trace[0]?.normalizer === 'tolerance:decimal-v1' && d.outcome === 'difference';
+      })));
+    it('a different number of numeric tokens, or different text between them, differs', () =>
+      fc.assert(fc.property(base, base, (a, b) => {
+        const one = compare(tol, obs(`${a}\n`), obs(`${a} ${b}\n`)).outcome === 'difference';
+        const text = compare(tol, obs(`x ${a}\n`), obs(`y ${a}\n`)).outcome === 'difference';
+        return one && text;
+      })));
   });
 });

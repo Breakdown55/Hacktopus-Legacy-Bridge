@@ -101,6 +101,19 @@ export async function listResults(c: Ctx, runId: string, outcome: string | null,
   return { items: page, next_cursor: rows.length > limit ? page[page.length - 1].id : null };
 }
 
+/** One verification result with everything the diff view needs. Org-scoped: another org's id is a 404. */
+export async function getResult(c: Ctx, resultId: string) {
+  const r = (await c.db.query<Record<string, unknown>>(
+    `SELECT id, verification_run_id, test_case_id, reference_output_id, outcome, raw_equal, normalized, normalization_trace, differences, diagnostics, actual, duration_ms
+     FROM verification_results WHERE id=$1 AND org_id=$2`, [resultId, c.orgId]))[0];
+  if (!r) throw new DomainError('not_found', 404);
+  const ref = r.reference_output_id
+    ? (await c.db.query<{ provenance: string; deterministic: boolean | null; observation: unknown }>('SELECT provenance, deterministic, observation FROM reference_outputs WHERE id=$1 AND org_id=$2', [r.reference_output_id, c.orgId]))[0]
+    : undefined;
+  const digests = (obs: any) => obs ? { stdout: obs.stdout?.sha256 ?? null, stderr: obs.stderr?.sha256 ?? null, exit: obs.exit ?? null } : null;
+  return { ...r, reference: ref ? { provenance: ref.provenance, deterministic: ref.deterministic, digests: digests(ref.observation) } : null, actual_digests: digests(r.actual) };
+}
+
 export async function getModule(c: Ctx, moduleId: string) {
   const m = (await c.db.query<any>('SELECT id, project_id, number, parent_id, scope_revision_id, origin, tree_sha256, file_manifest, untranslated, generator FROM module_revisions WHERE id=$1 AND org_id=$2', [moduleId, c.orgId]))[0];
   if (!m) throw new DomainError('not_found', 404);

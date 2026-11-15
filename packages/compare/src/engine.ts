@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Observation, PolicyRules } from '@lb/contracts';
 import { applyNormalizer, hasNormalizer, normalizerKey } from './normalizers';
 
-export const COMPARE_ENGINE_VERSION = '1.0.0';
+export const COMPARE_ENGINE_VERSION = '1.1.0';
 
 /** An observation plus the bytes behind its digests. The engine does no I/O. */
 export interface ObservationData {
@@ -23,6 +23,8 @@ export interface TraceEntry {
   normalizer: string;
   changed_bytes_expected: number;
   changed_bytes_actual: number;
+  /** Tolerance entries record the thresholds that were applied. */
+  params?: Record<string, number | string>;
 }
 
 export interface CompareResult {
@@ -145,6 +147,9 @@ function compareBytes(
   if (rule.mode === 'tolerance' && numeric && numeric.applies_to === channel && toleranceEqual(e, a, numeric.abs, numeric.rel)) {
     out.normalized = true;
     usedTolerance = true;
+    // Same bytes-that-differ count on both sides: tolerance does not rewrite either side.
+    const changed = Math.abs(e.length - a.length) + countChanged(e, a);
+    out.normalization_trace.push({ channel, normalizer: 'tolerance:decimal-v1', changed_bytes_expected: changed, changed_bytes_actual: changed, params: { abs: numeric.abs, rel: numeric.rel } });
   }
   if (usedTolerance) return;
   const fd = firstDifference(e, a)!;

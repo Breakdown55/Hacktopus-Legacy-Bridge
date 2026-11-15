@@ -146,7 +146,7 @@ describe('workflow over the API', () => {
     expect((await call(api.referenceSupply, 'POST', '/r', { params: { tcid: ids.tc }, body: { provenance: 'user_supplied', observation: { exit: { code: 0, signal: null }, stdout: { text: 'hi\n' } }, attestation: '' } })).status).toBe(422);
     const ref = await ok(call(api.referenceSupply, 'POST', '/r', { params: { tcid: ids.tc }, body: { provenance: 'user_supplied', observation: { exit: { code: 0, signal: null }, stdout: { text: 'hi\n' } }, attestation: 'copied from prod log OPS-112' } }), 201);
     await ok(call(api.policyCreate, 'POST', '/p', { params: { pid: ids.pid }, body: {} }), 201);
-    expect((await call(api.policyCreate, 'POST', '/p', { params: { pid: ids.pid }, body: { rules: { engine: '1.0.0', stderr: { mode: 'ignore' } } } })).json.code).toBe('invalid_policy');
+    expect((await call(api.policyCreate, 'POST', '/p', { params: { pid: ids.pid }, body: { rules: { engine: '1.1.0', stderr: { mode: 'ignore' } } } })).json.code).toBe('invalid_policy');
     await ok(call(api.caseSetCreate, 'POST', '/c', { params: { pid: ids.pid }, body: { set: [{ test_case_id: ids.tc, reference_output_id: ref.id }] } }), 201);
     const run = await ok(call(api.verificationCreate, 'POST', '/v', { params: { pid: ids.pid }, body: { environment_id: ids.replEnv } }), 202);
     ids.vr = run.run_id;
@@ -155,6 +155,11 @@ describe('workflow over the API', () => {
     expect(r).toMatchObject({ completeness: 'complete', summary: { match: 1 }, applies_to_current: true, stale_reasons: [] });
     const res = await ok(call(api.verificationResults, 'GET', '/v?outcome=match', { params: { vrid: ids.vr } }));
     expect(res.items).toHaveLength(1);
+    ids.rs = res.items[0].id;
+    const one = await ok(call(api.verificationResultGet, 'GET', '/r', { params: { rsid: ids.rs } }));
+    expect(one).toMatchObject({ id: ids.rs, outcome: 'match', raw_equal: true, normalization_trace: [], differences: [], reference: { provenance: 'user_supplied' } });
+    expect(one.actual_digests.stdout).toMatch(/^[0-9a-f]{64}$/);
+    expect((await call(api.verificationResultGet, 'GET', '/r', { params: { rsid: uuidv7() } })).status).toBe(404);
     expect((await ok(call(api.verificationCreate, 'POST', '/v', { params: { pid: ids.pid }, body: { environment_id: ids.replEnv } }), 202)).reused).toBe(true);
 
     expect((await call(api.exportCreate, 'POST', '/e', { params: { pid: ids.pid }, body: { verification_run_id: uuidv7() } })).status).toBe(404);
@@ -192,7 +197,7 @@ describe('workflow over the API', () => {
 });
 
 describe('cross-tenant sweep: every generated route, org B (admin there) asking for org A resources', () => {
-  const PARAM: Record<string, string> = { pid: 'pid', sid: 'sid', rid: 'scope', mid: 'mid', tcid: 'tc', vrid: 'vr', eid: 'eid', jid: 'job', uid: 'pid', sha: 'sha' };
+  const PARAM: Record<string, string> = { pid: 'pid', sid: 'sid', rid: 'scope', mid: 'mid', tcid: 'tc', vrid: 'vr', rsid: 'rs', eid: 'eid', jid: 'job', uid: 'pid', sha: 'sha' };
   const walk = (d: string): string[] => readdirSync(d).flatMap((e) => { const p = join(d, e); return statSync(p).isDirectory() ? walk(p) : p.endsWith('route.ts') ? [p] : []; });
   const BODY: Record<string, unknown> = {
     uploadCreate: { filename: 'x', size: 1, sha256: 'a'.repeat(64) }, sourceCreate: { artifacts: [{ upload_id: uuidv7(), path: 'x', role: 'primary_executable' }] }, sourceConsent: { acknowledge: 'I am authorized to run this' },
