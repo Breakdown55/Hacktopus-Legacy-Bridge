@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { projectPath } from '@/lib/projects';
 import { post, s1, settleJob, waitJob } from '@/lib/s1-client';
 import { emptyScope, newId, prune, type Scope } from '@/lib/scope-doc';
@@ -15,6 +15,16 @@ type Suggestion = { name: string; reason: string };
 
 const signalText: Record<string, string> = { entry_point_name: 'main function', incoming_references: 'called from elsewhere' };
 const MAX_PSEUDOCODE = 4;
+/** Placeholder names a decompiler gives functions that have no symbol. Only these are named automatically. */
+const UNNAMED = /^(FUN_|SUB_|0x)[0-9a-f]+$/i;
+
+/** Suggested names are kept in this browser so reopening the page doesn't ask the model again. Approved labels live in the scope. */
+function storedNames(sourceId: string): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem('lb-function-names:' + sourceId) ?? '{}') as Record<string, string>; } catch { return {}; }
+}
+function storeName(sourceId: string, id: string, name: string) {
+  try { localStorage.setItem('lb-function-names:' + sourceId, JSON.stringify({ ...storedNames(sourceId), [id]: name })); } catch { /* names still show for this visit */ }
+}
 
 export default function Select({ op }: { op: Operation }) {
   const router = useRouter();
@@ -34,7 +44,42 @@ export default function Select({ op }: { op: Operation }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion | null>>({});
+  const [naming, setNaming] = useState<{ done: number; total: number } | 'unavailable' | null>(null);
   const chosen = candidates.filter(c => !off.has(c.findings[0]));
+  const draftSettled = Boolean(draft.data || draft.error);
+
+  // Unnamed functions get a name suggested from their pseudocode as soon as the list loads. It runs in the background: one model call per function.
+  useEffect(() => {
+    const items = found.data?.items ?? [];
+    if (!sourceId || !items.length || !draftSettled) return;
+    const saved = storedNames(sourceId);
+    if (Object.keys(saved).length) setLabels(previous => ({ ...saved, ...previous }));
+    const labelled = new Set(draft.data?.document?.behaviors?.filter(b => b.label).map(b => b.evidence[0]));
+    const todo = items.map(c => c.findings[0]).filter((id, i) => UNNAMED.test(items[i].title) && !saved[id] && !labelled.has(id));
+    if (!todo.length) return;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    void (async () => {
+      try {
+        setNaming({ done: 0, total: todo.length });
+        const jobs: string[] = [];
+        for (const id of todo) jobs.push((await s1<{ job_id: string }>(path + '/function-name-suggestions', { method: 'POST', data: { finding_id: id }, signal })).job_id);
+        for (const [i, job] of jobs.entries()) {
+          const { suggestion } = await waitJob<{ suggestion: Suggestion | null }>(job, signal);
+          const id = todo[i];
+          if (suggestion) {
+            storeName(sourceId, id, suggestion.name);
+            setLabels(previous => (previous[id] === undefined ? { ...previous, [id]: suggestion.name } : previous));
+          }
+          setNaming({ done: i + 1, total: todo.length });
+        }
+        setNaming(null);
+      } catch {
+        if (!signal.aborted) setNaming('unavailable');
+      }
+    })();
+    return () => controller.abort();
+  }, [sourceId, found.data, draftSettled]); // eslint-disable-line react-hooks/exhaustive-deps
   const total = chosen.length + extra.length;
 
   function definedLabel(id: string) {
@@ -112,9 +157,12 @@ export default function Select({ op }: { op: Operation }) {
         <h2>Features found</h2>
         {!sourceId && <p className="hint">Upload an executable first.</p>}
         {sourceId && analysing && <p className="hint" role="status">Analyzing the executable…</p>}
-        {sourceId && index && ['failed', 'cancelled'].includes(index.status) && <p className="hint" role="status">The analysis didn’t finish. You can still type the features you want.</p>}
-        {sourceId && index?.status === 'succeeded' && !candidates.length && !found.error && <p className="hint">Nothing obvious was found. Type the features you want.</p>}
+        {sourceId && index && (['failed', 'cancelled'].includes(index.status) || index.outcome === 'failed') && <p className="hint" role="status">The analysis didn’t finish. You can still type the features you want.</p>}
+        {sourceId && index?.status === 'succeeded' && index.outcome !== 'failed' && found.data && !candidates.length && <p className="hint">Nothing obvious was found. Type the features you want.</p>}
         {found.error && <p role="alert">{found.error}</p>}
+        {naming && naming !== 'unavailable' && <p className="hint" role="status">Naming functions from their pseudocode… {naming.done} of {naming.total}</p>}
+        {naming === 'unavailable' && <p className="hint" role="status">Automatic names aren’t available right now. You can rename functions yourself.</p>}
+        {!naming && candidates.some(c => UNNAMED.test(c.title) && definedLabel(c.findings[0]).trim()) && <p className="hint">Names were suggested by AI from each function’s pseudocode. Rename any that look wrong.</p>}
         <div className="checks">
           {candidates.map(c => {
             const id = c.findings[0];
@@ -124,7 +172,7 @@ export default function Select({ op }: { op: Operation }) {
               <div className="function-label-row">
                 <label>
                   <input type="checkbox" checked={!off.has(id)} disabled={op.busy} onChange={e => { const n = new Set(off); if (e.target.checked) n.delete(id); else n.add(id); setOff(n); }} />
-                  <span>{label.trim() || c.title}{c.signals.length ? ' · ' + c.signals.map(s => signalText[s] ?? s).join(', ') : ''}</span>
+                  <span>{label.trim() ? label.trim() + ' (' + c.title + ')' : c.title}{c.signals.length ? ' · ' + c.signals.map(s => signalText[s] ?? s).join(', ') : ''}</span>
                 </label>
                 <button type="button" className="secondary" disabled={op.busy} aria-expanded={editing === id}
                   aria-label={'Rename ' + c.title} onClick={() => setEditing(editing === id ? null : id)}>Rename</button>
