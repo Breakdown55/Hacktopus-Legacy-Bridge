@@ -5,6 +5,7 @@ import { enqueue } from '../jobs/queue';
 import { digest } from './canonical';
 import type { Ctx } from './ctx';
 import { DomainError } from './errors';
+import { effectiveQuota } from './quotas';
 import { getHeads, moveHead, nextNumber } from './projects';
 import { safePath } from './sources';
 import { putBlob } from '../storage/blobs';
@@ -54,7 +55,8 @@ export interface CaseSetEntry { test_case_id: string; reference_output_id: strin
 
 export async function createCaseSet(c: Ctx, projectId: string, entries: CaseSetEntry[]) {
   const heads = await getHeads(c.db, c.orgId, projectId);
-  if (!entries.length || entries.length > 500) throw new DomainError('invalid_request', 422, '1 to 500 cases required');
+  const maxCases = (await effectiveQuota(c)).max_cases_per_set;
+  if (!entries.length || entries.length > maxCases) throw new DomainError('invalid_request', 422, `1 to ${maxCases} cases required`);
   if (new Set(entries.map((e) => e.test_case_id)).size !== entries.length) throw new DomainError('duplicate_case', 422);
   for (const e of entries) {
     const tc = await c.db.query('SELECT 1 FROM test_cases WHERE id=$1 AND org_id=$2 AND project_id=$3', [e.test_case_id, c.orgId, projectId]);

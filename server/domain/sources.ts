@@ -4,6 +4,7 @@ import { enqueue } from '../jobs/queue';
 import { digest } from './canonical';
 import type { Ctx } from './ctx';
 import { DomainError } from './errors';
+import { assertRevisionQuota, assertUploadQuota } from './quotas';
 import { getHeads, moveHead, nextNumber } from './projects';
 
 export const LIMITS = { fileBytes: 200 * 1024 * 1024, revisionBytes: 1024 ** 3, files: 500 };
@@ -17,7 +18,7 @@ export function safePath(p: string): string {
 export async function createUpload(c: Ctx, projectId: string, i: { filename: string; size: number; sha256: string }) {
   await getHeads(c.db, c.orgId, projectId);
   if (!/^[0-9a-f]{64}$/.test(i.sha256) || !(i.size >= 0)) throw new DomainError('invalid_request', 422);
-  if (i.size > LIMITS.fileBytes) throw new DomainError('quota_exceeded', 429, 'File exceeds 200 MiB');
+  await assertUploadQuota(c, i.size);
   const id = uuidv7();
   const put = await c.store.presignPut(c.orgId, id, i.sha256, i.size);
   await c.db.query(`INSERT INTO upload_sessions(id,org_id,project_id,filename,declared_size,declared_sha256,staging_key,expires_at,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,now() + interval '1 hour',$8)`,
@@ -60,7 +61,7 @@ export async function sealSourceRevision(c: Ctx, projectId: string, i: SealInput
     sessions.set(a.upload_id, r[0]);
   }
   const total = [...sessions.values()].reduce((n, s) => n + Number(s.declared_size), 0);
-  if (total > LIMITS.revisionBytes) throw new DomainError('quota_exceeded', 429, 'Revision exceeds 1 GiB');
+  await assertRevisionQuota(c, total);
 
   // Independently re-hash what was actually stored; never trust the declared value.
   for (const [id, s] of sessions) {

@@ -42,4 +42,13 @@ export class S3BlobStore implements BlobStore {
     assertSafe(org, sha, true);
     return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: blobKey(org, sha), ResponseContentDisposition: `attachment; filename="${filename.replace(/[^\w.-]/g, '_')}"`, ResponseContentType: 'application/octet-stream' }), { expiresIn: 300 });
   }
+  /** S3 DeleteObject succeeds for a missing key, so this is idempotent. */
+  async delete(org: string, sha: string) {
+    assertSafe(org, sha, true);
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: blobKey(org, sha) }));
+  }
+  async deleteStaged(org: string, upload: string) {
+    assertSafe(org, upload, false);
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: stagingKey(org, upload) }));
+  }
 }

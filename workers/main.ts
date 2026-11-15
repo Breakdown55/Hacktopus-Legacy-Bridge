@@ -10,8 +10,9 @@ import { verifyHandler } from './handlers/verify';
 import { exportHandler } from './handlers/export';
 import { nativeAnalysisHandler } from './handlers/native-analysis';
 import { generateHandler } from './handlers/generate';
+import { purgeHandler } from './handlers/purge';
 
-export const HANDLERS: Record<string, JobHandler> = { inspect: inspectHandler, probe: probeHandler, build: buildHandler, capture: captureHandler, verify: verifyHandler, export: exportHandler };
+export const HANDLERS: Record<string, JobHandler> = { purge: purgeHandler, inspect: inspectHandler, probe: probeHandler, build: buildHandler, capture: captureHandler, verify: verifyHandler, export: exportHandler };
 const NATIVE_HANDLERS: Record<string, JobHandler> = { native_index: nativeAnalysisHandler, native_deep_function: nativeAnalysisHandler };
 
 function handlersFor(env: WorkerEnv): Record<string, JobHandler> {

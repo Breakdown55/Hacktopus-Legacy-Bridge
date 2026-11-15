@@ -1,6 +1,7 @@
 import { enqueue } from '../jobs/queue';
 import type { Ctx } from './ctx';
 import { DomainError } from './errors';
+import { assertGenerationQuota } from './quotas';
 import { assertScopeApproved, getHeads } from './projects';
 
 export interface GenerationInput { scope_revision_id: string; parent_id?: string | null; instructions?: string }
@@ -10,6 +11,7 @@ export interface GenerationInput { scope_revision_id: string; parent_id?: string
  * and the organization must allow sending evidence to an external model (plan §6.3 data handling).
  */
 export async function requestGeneration(c: Ctx, projectId: string, i: GenerationInput) {
+  await assertGenerationQuota(c);
   const heads = await getHeads(c.db, c.orgId, projectId);
   await assertScopeApproved(c.db, c.orgId, projectId, i.scope_revision_id);
   if (heads.approved_scope_revision_id !== i.scope_revision_id) throw new DomainError('scope_not_current', 409, 'Generate from the currently approved scope revision.');

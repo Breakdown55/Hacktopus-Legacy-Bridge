@@ -32,4 +32,22 @@ describe.skipIf(!endpoint)('S3BlobStore', () => {
     expect(r.headers.get('content-disposition')).toBe('attachment; filename="a_b.bin"');
     expect(r.headers.get('content-type')).toBe('application/octet-stream');
   });
+
+  it('deletes content-addressed and staged objects, and deleting a missing object succeeds', async () => {
+    const d = Buffer.from('purge me');
+    const dsha = createHash('sha256').update(d).digest('hex');
+    const put = await s.put(org, d);
+    expect((await s.get(org, dsha)).equals(d)).toBe(true);
+    await s.delete(org, dsha);
+    await expect(s.get(org, dsha)).rejects.toThrow();
+    await expect(s.delete(org, dsha)).resolves.toBeUndefined(); // idempotent
+    expect(put.sha256).toBe(dsha);
+    const up = '33333333-3333-3333-3333-333333333333';
+    const p = await s.presignPut(org, up, dsha, d.length);
+    expect((await fetch(p.url, { method: 'PUT', headers: p.headers, body: new Uint8Array(d) })).status).toBe(200);
+    expect(await s.statStaged(org, up)).toEqual({ size: d.length });
+    await s.deleteStaged(org, up);
+    expect(await s.statStaged(org, up)).toBeNull();
+    await expect(s.deleteStaged(org, up)).resolves.toBeUndefined();
+  });
 });

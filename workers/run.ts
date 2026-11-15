@@ -13,6 +13,7 @@ import { RemoteCodexGenerator } from './generation/remote';
 import { z } from 'zod';
 import { DockerOriginalRunner, DockerReplacementRunner } from './execution/runners';
 import { NODE_IMAGE } from './export/build';
+import { enqueue } from '../server/jobs/queue';
 import { defaultWorkerId, workerLoop } from './main';
 import type { WorkerEnv } from './runtime';
 
@@ -54,7 +55,17 @@ async function main() {
   let stop = false;
   for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stop = true; });
   console.log(`[lb] worker ${env.workerId} started`);
+  // Retention: one purge job per org per hour (dedupe key buckets by hour, so several workers enqueue it once).
+  const enqueuePurges = async () => {
+    try {
+      const bucket = new Date().toISOString().slice(0, 13);
+      for (const o of await db.query<{ id: string }>('SELECT id FROM organizations')) await enqueue(db, { orgId: o.id, kind: 'purge', dedupeKey: `purge:${bucket}` });
+    } catch (e) { console.error('[lb] could not enqueue purge jobs:', (e as Error).name); }
+  };
+  void enqueuePurges();
+  const purgeTimer = setInterval(() => { void enqueuePurges(); }, 60 * 60 * 1000);
   await workerLoop(env, { stop: () => stop });
+  clearInterval(purgeTimer);
   await db.close();
 }
 main().catch((e) => { console.error('[lb] worker failed:', (e as Error).message); process.exit(1); });

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { assertSafe, blobKey, stagingKey, type BlobStore } from './blobstore';
 
@@ -34,4 +34,6 @@ export class FsBlobStore implements BlobStore {
   async get(org: string, sha: string) { assertSafe(org, sha, true); return readFileSync(this.p(blobKey(org, sha))); }
   async getStaged(org: string, upload: string) { assertSafe(org, upload, false); return readFileSync(this.p(stagingKey(org, upload))); }
   async presignGet(org: string, sha: string) { assertSafe(org, sha, true); return `file://${this.p(blobKey(org, sha))}`; }
+  async delete(org: string, sha: string) { assertSafe(org, sha, true); rmSync(this.p(blobKey(org, sha)), { force: true }); }
+  async deleteStaged(org: string, upload: string) { assertSafe(org, upload, false); rmSync(this.p(stagingKey(org, upload)), { force: true }); }
 }

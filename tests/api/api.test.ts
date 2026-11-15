@@ -197,7 +197,7 @@ describe('workflow over the API', () => {
 });
 
 describe('cross-tenant sweep: every generated route, org B (admin there) asking for org A resources', () => {
-  const PARAM: Record<string, string> = { pid: 'pid', sid: 'sid', rid: 'scope', mid: 'mid', tcid: 'tc', vrid: 'vr', rsid: 'rs', eid: 'eid', jid: 'job', uid: 'pid', sha: 'sha' };
+  const PARAM: Record<string, string> = { pid: 'pid', sid: 'sid', rid: 'scope', mid: 'mid', tcid: 'tc', vrid: 'vr', rsid: 'rs', eid: 'eid', jid: 'job', uid: 'pid', sha: 'sha', member: 'memberA' };
   const walk = (d: string): string[] => readdirSync(d).flatMap((e) => { const p = join(d, e); return statSync(p).isDirectory() ? walk(p) : p.endsWith('route.ts') ? [p] : []; });
   const BODY: Record<string, unknown> = {
     uploadCreate: { filename: 'x', size: 1, sha256: 'a'.repeat(64) }, sourceCreate: { artifacts: [{ upload_id: uuidv7(), path: 'x', role: 'primary_executable' }] }, sourceConsent: { acknowledge: 'I am authorized to run this' },
@@ -205,9 +205,10 @@ describe('cross-tenant sweep: every generated route, org B (admin there) asking 
     scopeDecision: { decision: 'approved', document_sha256: 'a'.repeat(64) }, moduleCreate: { origin: 'customer_upload', scope_revision_id: uuidv7(), files: [{ path: 'src/index.ts', content: 'x' }] },
     testCaseCreate: { name: 'x', input: {} }, referenceCapture: { source_revision_id: uuidv7(), environment_id: uuidv7(), test_case_ids: [uuidv7()] },
     referenceSupply: { provenance: 'user_supplied', observation: { exit: { code: 0, signal: null } }, attestation: 'x' }, caseSetCreate: { set: [{ test_case_id: uuidv7(), reference_output_id: null }] },
-    policyCreate: {}, verificationCreate: { environment_id: uuidv7() }, exportCreate: { verification_run_id: uuidv7() },
+    memberPatch: { role: 'viewer' }, policyCreate: {}, verificationCreate: { environment_id: uuidv7() }, exportCreate: { verification_run_id: uuidv7() },
   };
   it('returns 404 for all of them (and never leaks via 403 or 200)', async () => {
+    ids.memberA = A.viewer; // a user who belongs to org A only
     const files = walk(join(root, 'app/api/v1'));
     expect(files.length).toBeGreaterThanOrEqual(30);
     let checked = 0;
@@ -216,9 +217,10 @@ describe('cross-tenant sweep: every generated route, org B (admin there) asking 
       const params: Record<string, string> = {};
       for (const m of f.matchAll(/\[(?:\.\.\.)?(\w+)\]/g)) params[m[1]] = ids[PARAM[m[1]]] ?? ids.pid;
       params.sha = ids.sha ?? sha(Buffer.from('x'));
-      for (const m of src.matchAll(/export const (GET|POST|PUT|DELETE) = api\.(\w+);/g)) {
+      for (const m of src.matchAll(/export const (GET|POST|PUT|PATCH|DELETE) = api\.(\w+);/g)) {
         const [, method, name] = m;
-        if (name === 'projectsList' || name === 'projectsCreate') continue; // collection routes, scoped by org by construction
+        // Collection/org routes are scoped to the caller's own org by construction (the org comes from the verified membership); tests/api/s7-admin.test.ts covers them.
+        if (['projectsList', 'projectsCreate', 'orgGet', 'orgPatch', 'membersList', 'memberAdd', 'auditEvents'].includes(name)) continue;
         const handler = (api as Record<string, any>)[name];
         const headers = name === 'scopeDraftPut' ? { 'if-match': '"v1"' } : undefined;
         const r = await call(handler, method, name === 'moduleFile' ? `/api/v1/module-revisions/${ids.mid}/files/src/index.ts` : '/x', { who: { org: B.org, user: B.editor }, params, body: BODY[name], headers });

@@ -3,6 +3,7 @@ import { ZodError, type ZodType } from 'zod';
 import type { Ctx } from '../domain/ctx';
 import { DomainError } from '../domain/errors';
 import { getApp } from '../app';
+import { sessionUserId } from '../auth/session';
 
 export type Role = 'viewer' | 'editor' | 'admin';
 const RANK: Record<Role, number> = { viewer: 1, editor: 2, admin: 3 };
@@ -14,18 +15,40 @@ export function problem(status: number, code: string, title: string, o: { detail
 export interface Principal { orgId: string; userId: string; role: Role }
 
 /**
- * Authentication. S1 provides a DEV-ONLY header scheme (LB_DEV_AUTH=1, never in production).
- * Production auth (OIDC through Auth.js) is slice S7; until then production requests are refused.
+ * Authentication: an Auth.js session cookie (OIDC login, server/auth) plus X-Org-Id; or, outside production only, the DEV header scheme (LB_DEV_AUTH=1, X-User-Id).
+ * Dev headers are never honored when NODE_ENV=production.
+ * Authentication is two steps because of row-level security: `claim` names the org and user without touching the database,
+ * the request then runs on a connection scoped to that org (Db.withOrg), and `membershipOf` checks membership inside that scope.
  */
-export async function authenticate(req: Request, db: Ctx['db']): Promise<Principal | Response> {
-  if (process.env.NODE_ENV === 'production' || process.env.LB_DEV_AUTH !== '1') return problem(501, 'auth_not_configured', 'Authentication is not configured', { detail: 'Set LB_DEV_AUTH=1 for local development. Production login arrives in slice S7.' });
-  const orgId = req.headers.get('x-org-id'), userId = req.headers.get('x-user-id');
-  if (!orgId || !userId) return problem(401, 'unauthenticated', 'Authentication required');
+export async function claim(req: Request, base: Ctx['db']): Promise<{ orgId: string; userId: string } | Response> {
   const ok = /^[0-9a-f-]{36}$/;
-  if (!ok.test(orgId) || !ok.test(userId)) return problem(401, 'unauthenticated', 'Authentication required');
-  const m = await db.query<{ role: Role }>('SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2', [orgId, userId]);
-  if (!m[0]) return problem(404, 'not_found', 'Not found'); // never reveal that the org exists
-  return { orgId, userId, role: m[0].role };
+  const orgId = req.headers.get('x-org-id');
+  const dev = process.env.NODE_ENV !== 'production' && process.env.LB_DEV_AUTH === '1';
+  const devUser = req.headers.get('x-user-id');
+  if (dev && devUser) {
+    if (!orgId || !ok.test(orgId) || !ok.test(devUser)) return problem(401, 'unauthenticated', 'Authentication required');
+    return { orgId, userId: devUser };
+  }
+  if (!process.env.AUTH_SECRET && dev) return problem(401, 'unauthenticated', 'Authentication required');
+  if (!process.env.AUTH_SECRET) return problem(501, 'auth_not_configured', 'Authentication is not configured', { detail: 'Configure OIDC login (AUTH_SECRET, OIDC_*), or set LB_DEV_AUTH=1 for local development.' });
+  // Session cookie. The org comes from X-Org-Id and is only honored if the signed-in user is a member (checked inside the org scope).
+  // The custom header doubles as CSRF protection: a cross-site form or image request cannot set it, and no CORS headers are served.
+  const userId = await sessionUserId(req, base);
+  if (!userId || !orgId || !ok.test(orgId)) return problem(401, 'unauthenticated', 'Authentication required');
+  return { orgId, userId };
+}
+
+/** Must run on a db scoped to `c.orgId`: another org's membership rows are invisible there, so a non-member gets 404 and never learns the org exists. */
+export async function membershipOf(db: Ctx['db'], c: { orgId: string; userId: string }): Promise<Principal | Response> {
+  const m = await db.query<{ role: Role }>('SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2', [c.orgId, c.userId]);
+  if (!m[0]) return problem(404, 'not_found', 'Not found');
+  return { orgId: c.orgId, userId: c.userId, role: m[0].role };
+}
+
+/** Both steps on an already-scoped connection (kept for callers outside route()). */
+export async function authenticate(req: Request, db: Ctx['db']): Promise<Principal | Response> {
+  const c = await claim(req, db);
+  return c instanceof Response ? c : membershipOf(db, c);
 }
 
 export interface RouteArgs<P, B> { ctx: Ctx; req: Request; params: P; body: B; role: Role; requestId: string; url: URL }
@@ -39,41 +62,46 @@ export function route<P extends Record<string, string> = Record<string, string>,
   return async (req: Request, segment?: { params: Promise<Record<string, string | string[]>> | Record<string, string | string[]> }): Promise<Response> => {
     const requestId = `req_${randomUUID()}`;
     try {
-      const { db, store } = await getApp();
-      const who = await authenticate(req, db);
-      if (who instanceof Response) return who;
-      if (RANK[who.role] < RANK[opts.role]) return problem(403, 'forbidden', 'Forbidden', { detail: `Requires role ${opts.role}`, requestId });
-      const params = ((await segment?.params) ?? {}) as unknown as P;
-      let body = undefined as B;
-      let raw = '';
-      if (opts.body) {
-        raw = await req.text();
-        let parsed: unknown;
-        try { parsed = raw ? JSON.parse(raw) : {}; } catch { return problem(400, 'invalid_json', 'Malformed JSON', { requestId }); }
-        const r = opts.body.safeParse(parsed);
-        if (!r.success) return problem(422, 'validation_failed', 'Validation failed', { requestId, fields: r.error.issues.map((i) => ({ path: i.path.join('.'), code: i.code })) });
-        body = r.data;
-      }
-      const ctx: Ctx = { db, store, orgId: who.orgId, userId: who.userId };
-      let key: string | null = null, reqHash = '';
-      if (opts.idempotent) {
-        key = req.headers.get('idempotency-key');
-        if (!key) return problem(400, 'idempotency_key_required', 'Idempotency-Key header required', { requestId });
-        reqHash = createHash('sha256').update(`${req.method} ${new URL(req.url).pathname}\n${raw}`).digest('hex');
-        const prev = await db.query<{ request_sha256: string; response_status: number; response_body: unknown }>(`SELECT request_sha256, response_status, response_body FROM idempotency_keys WHERE org_id=$1 AND user_id=$2 AND key=$3 AND created_at > now() - interval '24 hours'`, [who.orgId, who.userId, key]);
-        if (prev[0]) {
-          if (prev[0].request_sha256 !== reqHash) return problem(409, 'idempotency_key_reused', 'Idempotency key reused with a different request', { requestId });
-          return Response.json(prev[0].response_body, { status: prev[0].response_status, headers: { 'idempotent-replay': 'true' } });
+      const { db: base, store } = await getApp();
+      const claimed = await claim(req, base);
+      if (claimed instanceof Response) return claimed;
+      // Everything below runs on one connection acting as lb_api for this org (row-level security), released in all cases.
+      return await base.withOrg(claimed.orgId, async (db) => {
+        const who = await membershipOf(db, claimed);
+        if (who instanceof Response) return who;
+        if (RANK[who.role] < RANK[opts.role]) return problem(403, 'forbidden', 'Forbidden', { detail: `Requires role ${opts.role}`, requestId });
+        const params = ((await segment?.params) ?? {}) as unknown as P;
+        let body = undefined as B;
+        let raw = '';
+        if (opts.body) {
+          raw = await req.text();
+          let parsed: unknown;
+          try { parsed = raw ? JSON.parse(raw) : {}; } catch { return problem(400, 'invalid_json', 'Malformed JSON', { requestId }); }
+          const r = opts.body.safeParse(parsed);
+          if (!r.success) return problem(422, 'validation_failed', 'Validation failed', { requestId, fields: r.error.issues.map((i) => ({ path: i.path.join('.'), code: i.code })) });
+          body = r.data;
         }
-      }
-      const out = await fn({ ctx, req, params, body, role: who.role, requestId, url: new URL(req.url) });
-      if (out instanceof Response) return out;
-      const status = out.status ?? 200;
-      if (key && status >= 200 && status < 300) {
-        await db.query('INSERT INTO idempotency_keys(org_id,user_id,key,request_sha256,response_status,response_body) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING', [who.orgId, who.userId, key, reqHash, status, JSON.stringify(out.body ?? null)]);
-      }
-      if (status === 204 || status === 304) return new Response(null, { status, headers: out.headers });
-      return Response.json(out.body ?? null, { status, headers: out.headers });
+        const ctx: Ctx = { db, store, orgId: who.orgId, userId: who.userId };
+        let key: string | null = null, reqHash = '';
+        if (opts.idempotent) {
+          key = req.headers.get('idempotency-key');
+          if (!key) return problem(400, 'idempotency_key_required', 'Idempotency-Key header required', { requestId });
+          reqHash = createHash('sha256').update(`${req.method} ${new URL(req.url).pathname}\n${raw}`).digest('hex');
+          const prev = await db.query<{ request_sha256: string; response_status: number; response_body: unknown }>(`SELECT request_sha256, response_status, response_body FROM idempotency_keys WHERE org_id=$1 AND user_id=$2 AND key=$3 AND created_at > now() - interval '24 hours'`, [who.orgId, who.userId, key]);
+          if (prev[0]) {
+            if (prev[0].request_sha256 !== reqHash) return problem(409, 'idempotency_key_reused', 'Idempotency key reused with a different request', { requestId });
+            return Response.json(prev[0].response_body, { status: prev[0].response_status, headers: { 'idempotent-replay': 'true' } });
+          }
+        }
+        const out = await fn({ ctx, req, params, body, role: who.role, requestId, url: new URL(req.url) });
+        if (out instanceof Response) return out;
+        const status = out.status ?? 200;
+        if (key && status >= 200 && status < 300) {
+          await db.query('INSERT INTO idempotency_keys(org_id,user_id,key,request_sha256,response_status,response_body) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING', [who.orgId, who.userId, key, reqHash, status, JSON.stringify(out.body ?? null)]);
+        }
+        if (status === 204 || status === 304) return new Response(null, { status, headers: out.headers });
+        return Response.json(out.body ?? null, { status, headers: out.headers });
+      });
     } catch (e) {
       if (e instanceof DomainError) return problem(e.status, e.code, e.code.replace(/_/g, ' '), { detail: e.message === e.code ? undefined : e.message, action: e.action, fields: e.fields, requestId });
       if (e instanceof ZodError) return problem(422, 'validation_failed', 'Validation failed', { requestId, fields: e.issues.map((i) => ({ path: i.path.join('.'), code: i.code })) });

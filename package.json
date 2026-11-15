@@ -11,6 +11,7 @@
     "worker": "tsx workers/run.ts",
     "worker:codex": "tsx workers/codex-worker.ts",
     "migrate": "tsx server/db/migrate-cli.ts",
+    "bootstrap-admin": "tsx server/db/bootstrap-admin-cli.ts",
     "s1:seed": "tsx server/db/seed-s1.ts",
     "fixtures": "make -C fixtures"
   },
@@ -26,6 +27,7 @@
   },
   "homepage": "https://github.com/Breakdown55/Hacktopus-Legacy-Bridge#readme",
   "dependencies": {
+    "@auth/core": "^0.41.3",
     "@aws-sdk/client-s3": "^3.1169.0",
     "@aws-sdk/s3-request-presigner": "^3.1169.0",
     "esbuild": "^0.28.2",

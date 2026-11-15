@@ -12,6 +12,10 @@ export interface BlobStore {
   get(orgId: string, sha256: string): Promise<Buffer>;
   getStaged(orgId: string, uploadId: string): Promise<Buffer>;
   presignGet(orgId: string, sha256: string, filename: string): Promise<string>;
+  /** Removes a content-addressed object. Idempotent: deleting a missing object succeeds. Used only by purge. */
+  delete(orgId: string, sha256: string): Promise<void>;
+  /** Removes a staging object. Idempotent. */
+  deleteStaged(orgId: string, uploadId: string): Promise<void>;
 }
 
 export const blobKey = (org: string, sha: string) => `orgs/${org}/blobs/sha256/${sha.slice(0, 2)}/${sha}`;
