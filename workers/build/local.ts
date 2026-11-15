@@ -15,12 +15,13 @@ export async function localBuild(files: { path: string; content: Buffer }[], opt
     writeFileSync(join(dir, 'tsconfig.json'), TSCONFIG);
     writeFileSync(join(dir, 'package.json'), PACKAGE_JSON);
     mkdirSync(join(dir, 'bin')); writeFileSync(join(dir, 'bin/cli.mjs'), CLI_SHIM);
-    symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules')); // for @types/node only; excluded from output
+    symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     const tscVersion = JSON.parse(readFileSync(join(root, 'node_modules/typescript/package.json'), 'utf8')).version as string;
     const toolchain = { node: process.version, typescript: tscVersion };
     const image = `local-tsc@${tscVersion}`;
     const r = await new Promise<{ code: number | null; out: string; timedOut: boolean }>((resolve) => {
-      const c = spawn(join(root, 'node_modules/.bin/tsc'), ['-p', 'tsconfig.json', '--pretty', 'false'], { cwd: dir, env: { PATH: process.env.PATH ?? '' } as unknown as NodeJS.ProcessEnv });
+      const args = [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.json', '--pretty', 'false'];
+      const c = spawn(process.execPath, args, { cwd: dir, env: { PATH: process.env.PATH ?? '' } as unknown as NodeJS.ProcessEnv });
       let out = ''; let timedOut = false;
       const t = setTimeout(() => { timedOut = true; c.kill('SIGKILL'); }, opts.timeoutMs ?? 120_000);
       c.stdout.on('data', (d) => (out += d)); c.stderr.on('data', (d) => (out += d));

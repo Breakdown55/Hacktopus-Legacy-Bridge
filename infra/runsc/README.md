@@ -1,5 +1,7 @@
 # gVisor (runsc) on a worker host — UNVERIFIED
 
+F1 ran the analysis image with standalone runsc in Ubuntu WSL. See the [F1 report](../../docs/f1-analysis-spike.md). Registration as a Docker runtime is still unverified.
+
 Dedicated Linux worker (e.g. AWS EC2, 4 vCPU / 16 GiB, Ubuntu 24.04). Block the metadata endpoint (169.254.169.254) at the host firewall.
 
 1. Install gVisor: https://gvisor.dev/docs/user_guide/install/

@@ -6,6 +6,7 @@ export type Project = {
   edited: number;
   needs?: boolean;
   source?: string;
+  analysisJobId?: string;
   notes?: string;
   features: string[];
   selected: string[];

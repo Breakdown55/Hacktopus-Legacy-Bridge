@@ -8,16 +8,22 @@ import { inspectHandler } from './handlers/inspect';
 import { probeHandler } from './handlers/probe';
 import { verifyHandler } from './handlers/verify';
 import { exportHandler } from './handlers/export';
+import { nativeAnalysisHandler } from './handlers/native-analysis';
 
 export const HANDLERS: Record<string, JobHandler> = { inspect: inspectHandler, probe: probeHandler, build: buildHandler, capture: captureHandler, verify: verifyHandler, export: exportHandler };
+const NATIVE_HANDLERS: Record<string, JobHandler> = { native_index: nativeAnalysisHandler, native_deep_function: nativeAnalysisHandler };
+
+function handlersFor(env: WorkerEnv) {
+  return env.rea ? { ...HANDLERS, ...NATIVE_HANDLERS } : HANDLERS;
+}
 
 /** Runs one claimed job to a terminal or requeued state. Returns what happened. */
 export async function runJob(env: WorkerEnv, job: Job): Promise<string> {
-  const handler = HANDLERS[job.kind];
+  const handler = handlersFor(env)[job.kind];
   if (!handler) { await finish(env.db, job.id, env.workerId, { status: 'failed', error: { code: 'unknown_kind', kind: job.kind } }); return 'failed'; }
   const timer = setInterval(() => { void controlFor(env, job).checkpoint().catch(() => {}); }, 10_000);
   try {
-    await handler(env, job, controlFor(env, job));
+    if (await handler(env, job, controlFor(env, job)) === 'finalized') return 'succeeded';
     return (await finish(env.db, job.id, env.workerId, { status: 'succeeded' })) ? 'succeeded' : 'lost';
   } catch (e) {
     if (e instanceof LeaseLostError) return 'lost'; // another worker owns it; our writes were idempotent no-ops
@@ -33,10 +39,12 @@ export async function runJob(env: WorkerEnv, job: Job): Promise<string> {
 
 /** Claims and runs jobs until `stop()` returns true. Also reaps expired leases. */
 export async function workerLoop(env: WorkerEnv, opts: { kinds?: string[]; idleMs?: number; stop?: () => boolean } = {}) {
+  const handlers = handlersFor(env);
+  const kinds = (opts.kinds ?? Object.keys(handlers)).filter((kind) => Object.hasOwn(handlers, kind));
   let lastReap = 0;
   while (!opts.stop?.()) {
     if (Date.now() - lastReap > 15_000) { await reap(env.db); lastReap = Date.now(); }
-    const job = await claim(env.db, env.workerId, opts.kinds);
+    const job = kinds.length ? await claim(env.db, env.workerId, kinds) : undefined;
     if (!job) { await new Promise((r) => setTimeout(r, opts.idleMs ?? 500)); continue; }
     await runJob(env, job);
   }
@@ -44,8 +52,11 @@ export async function workerLoop(env: WorkerEnv, opts: { kinds?: string[]; idleM
 
 /** Drains the queue once (tests): runs every currently-claimable job. Returns the number run. */
 export async function drain(env: WorkerEnv, kinds?: string[]): Promise<number> {
+  const handlers = handlersFor(env);
+  const available = (kinds ?? Object.keys(handlers)).filter((kind) => Object.hasOwn(handlers, kind));
+  if (!available.length) return 0;
   let n = 0;
-  for (let job = await claim(env.db, env.workerId, kinds); job; job = await claim(env.db, env.workerId, kinds)) { await runJob(env, job); n++; }
+  for (let job = await claim(env.db, env.workerId, available); job; job = await claim(env.db, env.workerId, available)) { await runJob(env, job); n++; }
   return n;
 }
 

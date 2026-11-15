@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { createPgDb } from '../server/db/pg';
 import { CONTROLS, ensureEnvironment } from '../server/domain/environments';
 import { S3BlobStore } from '../server/storage/s3';
+import { DockerReaAnalysisRunner } from './analysis/rea/runner';
 import { localBuild } from './build/local';
 import { DockerOriginalRunner, DockerReplacementRunner } from './execution/runners';
 import { NODE_IMAGE } from './export/build';
@@ -29,7 +30,16 @@ async function main() {
   await ensureEnvironment(db, { name: 'replacement-node22', version: 1, role: 'replacement', image_digest: NODE_IMAGE, arch: process.arch, controls: CONTROLS });
   const workRoot = process.env.LB_WORK_ROOT ?? '/var/lib/lb/jobs';
   mkdirSync(workRoot, { recursive: true });
-  const env: WorkerEnv = { db, store, workRoot, workerId: defaultWorkerId(), original: new DockerOriginalRunner({ runtime: process.env.LB_RUNTIME || undefined }), replacement: new DockerReplacementRunner(NODE_IMAGE, { runtime: process.env.LB_RUNTIME || undefined }), build: (f) => localBuild(f) };
+  const analysisImage = process.env.LB_ANALYSIS_IMAGE;
+  const env: WorkerEnv = {
+    db, store, workRoot, workerId: defaultWorkerId(),
+    original: new DockerOriginalRunner({ runtime: process.env.LB_RUNTIME || undefined }),
+    replacement: new DockerReplacementRunner(NODE_IMAGE, { runtime: process.env.LB_RUNTIME || undefined }),
+    rea: analysisImage ? new DockerReaAnalysisRunner({
+      image: analysisImage, runtime: process.env.LB_ANALYSIS_RUNTIME || process.env.LB_RUNTIME || undefined,
+    }) : undefined,
+    build: localBuild,
+  };
   let stop = false;
   for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stop = true; });
   console.log(`[lb] worker ${env.workerId} started`);

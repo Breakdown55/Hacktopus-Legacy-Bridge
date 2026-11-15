@@ -4,13 +4,13 @@ services:
   postgres:
     image: postgres:16
     environment: { POSTGRES_USER: lb, POSTGRES_PASSWORD: lb, POSTGRES_DB: legacy_bridge }
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
   s3:
     # Dev-only S3-compatible store. MinIO's public images were not pullable when this was written (2026-11-14); swap it back in if yours are.
     image: adobe/s3mock
     environment: { COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: legacy-bridge }
-    ports: ["9090:9090"]
+    ports: ["127.0.0.1:9090:9090"]
   web:
     build: { context: .., dockerfile: infra/images/web/Dockerfile }
     env_file: ../.env

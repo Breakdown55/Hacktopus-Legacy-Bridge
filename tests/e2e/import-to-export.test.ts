@@ -18,6 +18,7 @@ import type { Ctx } from '../../server/domain/ctx';
 import { createUpload, completeUpload, getSourceStatus, recordExecutionConsent, sealSourceRevision } from '../../server/domain/sources';
 import { createCaseSet, createPolicy, createTestCase, requestCapture, requestProbe } from '../../server/domain/cases';
 import { createScopeRevision, decideScope, getHeads, putScopeDraft } from '../../server/domain/projects';
+import { getProgress } from '../../server/domain/queries';
 import { createModuleRevision } from '../../server/domain/modules';
 import { appliesToCurrent, createVerificationRun } from '../../server/domain/verification';
 import { CONTROLS, ensureEnvironment } from '../../server/domain/environments';
@@ -65,6 +66,11 @@ describe.skipIf(skip)('S1: import -> export (real ELF in Docker)', () => {
   };
 
   beforeAll(async () => {
+    // Image download progress is Docker's stderr, not part of an executable's observation.
+    for (const image of [IMAGE, NODE_IMAGE]) {
+      try { execFileSync(docker!, ['image', 'inspect', image], { stdio: 'ignore', timeout: 15_000 }); }
+      catch { execFileSync(docker!, ['pull', image], { stdio: 'inherit', timeout: 240_000 }); }
+    }
     db = await testDb();
     const store = new FsBlobStore(mkdtempSync(join(tmpdir(), 'e2e-blobs-')));
     c = { db, store, orgId: org, userId: user };
@@ -75,7 +81,7 @@ describe.skipIf(skip)('S1: import -> export (real ELF in Docker)', () => {
     origEnv = await ensureEnvironment(db, { name: 'original-glibc', version: 1, role: 'original', image_digest: IMAGE, arch: 'x86-64', controls: CONTROLS });
     replEnv = await ensureEnvironment(db, { name: 'replacement-node22', version: 1, role: 'replacement', image_digest: NODE_IMAGE, arch: process.arch, controls: CONTROLS });
     env = { db, store, workRoot: mkdtempSync(join(tmpdir(), 'e2e-work-')), workerId: 'w-test', original: new DockerOriginalRunner({ docker }), replacement: new DockerReplacementRunner(NODE_IMAGE), build: (files) => localBuild(files, { repoRoot: root }) };
-  });
+  }, 300_000);
 
   it('1. import: seal a revision and inspect the real ELF', async () => {
     const bin = await upload('wordfreq', readFileSync(join(root, 'fixtures/bin/wordfreq')));
@@ -153,6 +159,7 @@ describe.skipIf(skip)('S1: import -> export (real ELF in Docker)', () => {
     expect(JSON.stringify(jobRow)).toContain('succeeded');
     const row = (await db.query<{ package_blob_sha256: string; sums_sha256: string; manifest: any; created_at: string }>('SELECT package_blob_sha256, sums_sha256, manifest, created_at FROM export_packages WHERE id=$1', [ex.export_id]))[0];
     expect(row.package_blob_sha256).toBeTruthy();
+    expect((await getProgress(c, project)).completed_steps).toBe(5);
     expect(row.manifest.summary).toMatchObject({ match: 10, difference: 0, couldnt_run: 0, needs_reference: 0 });
     expect(row.manifest.binding.verification_run).toMatchObject({ completeness: 'complete', applies_to_current_at_export: true });
 
@@ -207,5 +214,6 @@ describe.skipIf(skip)('S1: import -> export (real ELF in Docker)', () => {
     // the earlier run's results are unchanged
     expect((await db.query<{ summary: Record<string, number> }>('SELECT summary FROM verification_runs WHERE id=$1', [runId]))[0].summary.match).toBe(10);
     expect(v2.number).toBe(3);
+    expect((await getProgress(c, project)).completed_steps).toBe(4);
   }, 120_000);
 });

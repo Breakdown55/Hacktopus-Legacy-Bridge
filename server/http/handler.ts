@@ -75,7 +75,7 @@ export function route<P extends Record<string, string> = Record<string, string>,
       if (status === 204 || status === 304) return new Response(null, { status, headers: out.headers });
       return Response.json(out.body ?? null, { status, headers: out.headers });
     } catch (e) {
-      if (e instanceof DomainError) return problem(e.status, e.code, e.code.replace(/_/g, ' '), { detail: e.message === e.code ? undefined : e.message, action: e.action, requestId });
+      if (e instanceof DomainError) return problem(e.status, e.code, e.code.replace(/_/g, ' '), { detail: e.message === e.code ? undefined : e.message, action: e.action, fields: e.fields, requestId });
       if (e instanceof ZodError) return problem(422, 'validation_failed', 'Validation failed', { requestId, fields: e.issues.map((i) => ({ path: i.path.join('.'), code: i.code })) });
       console.error(`[lb] ${requestId} unhandled`, (e as Error).name, process.env.LB_DEBUG_ERRORS === '1' ? (e as Error).message : ''); // message only when explicitly debugging: it could contain customer data
       return problem(500, 'internal_error', 'Internal error', { requestId, retryable: true });

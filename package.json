@@ -9,7 +9,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "worker": "tsx workers/run.ts",
+    "worker:codex": "tsx workers/codex-worker.ts",
     "migrate": "tsx server/db/migrate-cli.ts",
+    "s1:seed": "tsx server/db/seed-s1.ts",
     "fixtures": "make -C fixtures"
   },
   "repository": {

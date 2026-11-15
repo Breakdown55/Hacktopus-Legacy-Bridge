@@ -2,6 +2,7 @@ import type { Db } from '../db/db';
 import { uuidv7 } from '../db/ids';
 import { digest } from './canonical';
 import { DomainError } from './errors';
+import { validateScopeEvidence } from './scope-evidence';
 
 export interface Heads {
   current_source_revision_id: string | null; approved_scope_revision_id: string | null; current_module_revision_id: string | null;
@@ -34,7 +35,8 @@ export async function nextNumber(db: Db, table: 'source_revisions' | 'scope_revi
 
 // ---------------- scope: draft -> revision -> decision ----------------
 export async function putScopeDraft(db: Db, orgId: string, projectId: string, document: unknown, ifMatchVersion: number | null, userId: string | null) {
-  await getHeads(db, orgId, projectId);
+  const heads = await getHeads(db, orgId, projectId);
+  await validateScopeEvidence(db, orgId, heads.current_source_revision_id, document);
   const cur = await db.query<{ version: number }>('SELECT version FROM scope_drafts WHERE project_id=$1 AND org_id=$2', [projectId, orgId]);
   if (!cur[0]) {
     if (ifMatchVersion !== null && ifMatchVersion !== 0) throw new DomainError('precondition_failed', 412);
@@ -54,6 +56,7 @@ export async function createScopeRevision(db: Db, orgId: string, projectId: stri
     if (!heads.current_source_revision_id) throw new DomainError('source_required', 409);
     const d = await t.query<{ document: unknown; version: number }>('SELECT document, version FROM scope_drafts WHERE project_id=$1 AND org_id=$2', [projectId, orgId]);
     if (!d[0] || d[0].version !== fromDraftVersion) throw new DomainError('precondition_failed', 412);
+    await validateScopeEvidence(t, orgId, heads.current_source_revision_id, d[0].document);
     const id = uuidv7(), number = await nextNumber(t, 'scope_revisions', projectId), sha = digest(d[0].document);
     await t.query(`INSERT INTO scope_revisions(id,org_id,project_id,number,source_revision_id,document,document_sha256,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [id, orgId, projectId, number, heads.current_source_revision_id, JSON.stringify(d[0].document), sha, userId]);

@@ -28,13 +28,17 @@ export async function getProgress(c: Ctx, projectId: string) {
     if (missing) needs.push({ step: 'verify', code: 'needs_reference', count: missing });
   }
   const run = (await c.db.query<{ id: string; completeness: string }>(`SELECT id, completeness FROM verification_runs WHERE project_id=$1 AND org_id=$2 AND completeness IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 5`, [projectId, c.orgId]));
+  let currentRun: string | null = null;
   for (const r of run) {
     const a = await appliesToCurrent(c.db, c.orgId, projectId, r.id);
-    if (a?.applies_to_current) { steps[3] = true; break; } // verified only from a run that applies to current heads
+    if (a?.applies_to_current) { currentRun = r.id; break; }
   }
+  steps[3] = currentRun !== null;
   if (steps[2] && !steps[3]) needs.push({ step: 'verify', code: 'verification_required' });
-  const ex = await c.db.query('SELECT 1 FROM export_packages WHERE project_id=$1 AND org_id=$2 AND package_blob_sha256 IS NOT NULL LIMIT 1', [projectId, c.orgId]);
-  steps[4] = steps[3] && ex.length > 0;
+  const ex = currentRun
+    ? await c.db.query('SELECT 1 FROM export_packages WHERE project_id=$1 AND org_id=$2 AND verification_run_id=$3 AND package_blob_sha256 IS NOT NULL AND expires_at>now() LIMIT 1', [projectId, c.orgId, currentRun])
+    : [];
+  steps[4] = ex.length > 0;
   const completed = steps.findIndex((s) => !s);
   const done = completed === -1 ? 5 : completed;
   return { stage: ['import', 'select', 'modernize', 'verify', 'export'][Math.min(done, 4)], completed_steps: done, needs_input: needs };

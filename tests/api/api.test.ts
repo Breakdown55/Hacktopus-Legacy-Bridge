@@ -196,7 +196,7 @@ describe('cross-tenant sweep: every generated route, org B (admin there) asking 
   const walk = (d: string): string[] => readdirSync(d).flatMap((e) => { const p = join(d, e); return statSync(p).isDirectory() ? walk(p) : p.endsWith('route.ts') ? [p] : []; });
   const BODY: Record<string, unknown> = {
     uploadCreate: { filename: 'x', size: 1, sha256: 'a'.repeat(64) }, sourceCreate: { artifacts: [{ upload_id: uuidv7(), path: 'x', role: 'primary_executable' }] }, sourceConsent: { acknowledge: 'I am authorized to run this' },
-    sourceProbe: { environment_id: uuidv7() }, scopeDraftPut: { document: { workflow: { name: 'x', invocation: { argv_template: [] } }, interface: { language: 'typescript' } } }, scopeRevisionCreate: { from_draft_version: 1 },
+    sourceProbe: { environment_id: uuidv7() }, analysisRunCreate: { kind: 'index' }, scopeDraftPut: { document: { workflow: { name: 'x', invocation: { argv_template: [] } }, interface: { language: 'typescript' } } }, scopeRevisionCreate: { from_draft_version: 1 },
     scopeDecision: { decision: 'approved', document_sha256: 'a'.repeat(64) }, moduleCreate: { origin: 'customer_upload', scope_revision_id: uuidv7(), files: [{ path: 'src/index.ts', content: 'x' }] },
     testCaseCreate: { name: 'x', input: {} }, referenceCapture: { source_revision_id: uuidv7(), environment_id: uuidv7(), test_case_ids: [uuidv7()] },
     referenceSupply: { provenance: 'user_supplied', observation: { exit: { code: 0, signal: null } }, attestation: 'x' }, caseSetCreate: { set: [{ test_case_id: uuidv7(), reference_output_id: null }] },

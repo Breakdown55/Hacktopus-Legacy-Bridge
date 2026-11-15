@@ -3,7 +3,7 @@
 > **Implementation status, 2026-11-14.** The plan below is the original design, copied from the planning session; only its title and status line were changed.
 > This block records what has been built against it. Where the two disagree, the code and this block win.
 >
-> **Slice S1 (walking skeleton): backend built and tested; UI wiring not started.** 90 tests pass, on PGlite and on real PostgreSQL 16.
+> **Slice S1 (walking skeleton): backend and local browser workflow implemented.** See the [S1 setup](../README.md#s1-browser-workflow). The separate prototype still works when the flag is off.
 >
 > | Plan item | Status |
 > |---|---|
@@ -11,16 +11,17 @@
 > | §4 job queue (SKIP LOCKED, leases, reaper, retry, cancel) | Built and tested, including a true concurrent claim race on PG16. |
 > | §4.4 invariants, staleness (`applies_to_current`), binding digests | Built and tested (`server/domain/`). |
 > | §5 API | 30 routes under `app/api/v1`, `next build` passes. Tested by calling handlers with real `Request` objects, not over a running HTTP server. Auth is a **dev-only header scheme** (`LB_DEV_AUTH=1`); OIDC is S7. |
-> | §6.1 analysis | Only the built-in ELF inspector. **No REA/Ghidra (S2). F1 untouched.** |
+> | §6.1 analysis | Built the REA 6.9.0 / Ghidra 12.1 analysis worker alongside the built-in inspector. The x86-64 ELF index and focused functions record artifact hashes, pinned image IDs, raw evidence, and coverage limits. PE reports an unsupported result. |
 > | §6.3 generation | **Not started (S4).** Module revisions come from customer upload / user edit. |
 > | §7 harness, compare engine, replay | Built (`workers/execution`, `packages/compare`); the outcome decision (`judge`) is shared by the verify worker and the exported replay. |
 > | §8.1 isolation | Original binaries and replacement modules run in hardened containers (no network, read-only rootfs, non-root, caps dropped) on **Docker runc, not gVisor**. **`tsc` builds still run unsandboxed on the host** (`LB_SANDBOX=direct`, refused in production). `RunscLauncher` was deleted: `runtime: 'runsc'` is an option on the Docker runners. |
 > | §9 export | Built: deterministic zip, `SHA256SUMS`, integrity verifier, offline replay verified on the host and in `node:22 --network none`. `--docker` / `--original` flags of `run-cases.mjs` are **not implemented**. |
 > | §2 object storage | `S3BlobStore` verified against Adobe S3Mock only. MinIO's public images were not pullable (2026-11-14), so `infra/docker-compose.yml` uses S3Mock for dev. |
-> | §10.2 S1 "minimal UI wiring behind a feature flag" | **Not started.** The UI is still the localStorage prototype. |
-> | §10.1 spikes | F1 untouched. F2 partial (determinism and `network=none` confirmed; faketime, `setarch -R`, gVisor start latency not). F4 partial (checksum enforcement on S3Mock only). F3, F5 untouched. |
+> | §10.2 S1 "minimal UI wiring behind a feature flag" | Built and exercised with the real `wordfreq` fixture in a browser against PostgreSQL and S3Mock. The UI captured and matched 10 original reference cases and downloaded the ZIP. Enable with `NEXT_PUBLIC_LB_S1_UI=1`. |
+> | §10.1 spikes | F1 passed on six ELF variants with standalone gVisor. See the [F1 report](f1-analysis-spike.md). F2 partial (determinism and `network=none` confirmed; faketime, `setarch -R`, gVisor start latency not). F4 partial (checksum enforcement on S3Mock only). F3, F5 untouched. |
 > | Written but never run | `infra/images/{web,worker}`, `infra/runsc/README.md`, EC2/RDS/S3 deployment. The worker image sets `NODE_ENV=production`, so it refuses to start until the build step is sandboxed or you opt in. |
-> | Slices S2–S7 | Not started (S3 and S5 have backend pieces from S1: scope approval and the compare engine). |
+> | Slice S2 | Findings, candidate signals, focused pseudocode, and scope citations are implemented on Select and the versioned API. The pinned image recovered 12 of 12 reference function addresses from stripped `wordfreq`. The browser flow verified raw evidence download and scope approval against PostgreSQL and S3Mock. Local S2 analysis ran on Docker runc. See [S2 setup](../README.md#s2-executable-evidence). |
+> | Slices S3–S7 | S3 and S5 have backend pieces from S1 and S2, including scope approvals and citations and the compare engine. |
 >
 > Decisions taken: local development on Docker, production target one AWS EC2 Linux host with gVisor, RDS PostgreSQL and S3 (§12.5 Q1).
 > Still open: §12.5 Q2–Q5 (first customer workload, model data policy, target language, retention/redistribution).

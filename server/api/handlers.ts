@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ScopeDocV1 } from '@lb/contracts';
 import { uuidv7 } from '../db/ids';
+import { FINDING_KINDS, getFinding, getRawEvidence, listCandidates, listFindings, listNativeRuns, queueNativeAnalysis } from '../domain/analysis';
 import { cancel } from '../jobs/queue';
 import { createCaseSet, createPolicy, createTestCase, requestCapture, requestProbe, supplyReference } from '../domain/cases';
 import { DomainError } from '../domain/errors';
@@ -17,6 +18,10 @@ type P = Record<string, string>;
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
 const uuid = z.string().regex(/^[0-9a-f-]{36}$/);
 const text = z.object({ text: z.string().optional(), base64: z.string().optional() });
+const analysisRequest = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('index') }),
+  z.object({ kind: z.literal('deep_function'), params: z.object({ address: z.string().max(32) }) }),
+]);
 
 /** 404 (never 403) when an entity does not belong to the caller's org. */
 async function projectOf(c: Ctx, table: string, id: string): Promise<string> {
@@ -55,6 +60,20 @@ export const api = {
   sourceGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getSourceStatus(ctx, params.sid) })),
   sourceConsent: route<P, { acknowledge: string }>({ role: 'editor', body: z.object({ acknowledge: z.string() }) }, async ({ ctx, params, body }) => { await recordExecutionConsent(ctx, params.sid, body.acknowledge); return { body: { consented: true } }; }),
   sourceProbe: route<P, any>({ role: 'editor', idempotent: true, body: z.object({ environment_id: uuid, argv: z.array(z.string()).optional(), stdin_text: z.string().optional() }) }, async ({ ctx, params, body }) => ({ status: 202, body: await requestProbe(ctx, await projectOf(ctx, 'source_revisions', params.sid), { ...body, source_revision_id: params.sid }) })),
+  analysisRunCreate: route<P, z.infer<typeof analysisRequest>>({ role: 'editor', idempotent: true, body: analysisRequest }, async ({ ctx, params, body }) => ({ status: 202, body: await queueNativeAnalysis(ctx, params.sid, body) })),
+  analysisRunsList: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await listNativeRuns(ctx, params.sid) })),
+  findingsList: route<P>({ role: 'viewer' }, async ({ ctx, params, url }) => {
+    const q = url.searchParams.get('q') ?? '';
+    const cursor = url.searchParams.get('cursor') || undefined;
+    const kind = z.enum(FINDING_KINDS).optional().parse(url.searchParams.get('kind') || undefined);
+    if (q.length > 200 || q.includes('\0') || (cursor?.length ?? 0) > 2048) throw new DomainError('invalid_query', 400);
+    return { body: await listFindings(ctx, params.sid, { kind, q, cursor, limit: Math.floor(pageLimit(url)), runId: url.searchParams.get('run_id') || undefined }) };
+  }),
+  findingGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getFinding(ctx, params.fid) })),
+  candidatesList: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await listCandidates(ctx, params.sid) })),
+  rawEvidenceGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => new Response(await getRawEvidence(ctx, params.rid, params.eid), {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' },
+  })),
 
   scopeDraftGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => {
     await getHeads(ctx.db, ctx.orgId, params.pid);

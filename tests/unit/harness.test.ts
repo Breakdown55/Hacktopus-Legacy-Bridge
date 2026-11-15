@@ -23,7 +23,7 @@ describe('harness', () => {
     expect(JSON.parse(r.data.stdout.toString())).toMatchObject({ TZ: 'UTC', A: '1' });
     expect(r.data.stdout.toString()).not.toContain('leak');
   });
-  it('a signal death is an observation (complete)', async () => {
+  it.skipIf(process.platform === 'win32')('a POSIX signal death is an observation (complete)', async () => {
     const r = await runCase(node("process.kill(process.pid,'SIGSEGV')"));
     expect(r.data.observation.complete).toBe(true);
     expect(r.data.observation.exit.signal).toBe('SIGSEGV');

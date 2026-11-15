@@ -4,7 +4,7 @@ Turns functionality from legacy executables into reusable TypeScript, with rerun
 Workflow: **Import → Select → Modernize → Verify → Export**.
 
 Two things live in this repo:
-- **UI prototype** (`app/`, `components/`, `lib/`): Next.js 16 App Router, React 19, client-only. State is localStorage + IndexedDB. **Not wired to the backend yet.**
+- **UI** (`app/`, `components/`, `lib/`): Next.js 16 App Router and React 19. The default prototype stores projects and attachments in the browser. `NEXT_PUBLIC_LB_S1_UI=1` enables the local backend workflow on the same five routes. Setup is in the README.
 - **Backend** (`app/api/v1`, `server/`, `workers/`, `packages/`, `infra/`, `fixtures/`, `tests/`): built to `docs/backend-plan.md`, which starts with an implementation-status table. Read that table before assuming anything exists. MVP target: Linux x86-64 ELF command-line programs → TypeScript on Node 22.
 
 ## Commands
@@ -32,9 +32,10 @@ server/http/handler.ts   route(): auth → role → validate → idempotency →
 server/db/               SQL migrations (source of truth), Db interface, pg + PGlite drivers, uuidv7
 server/jobs/queue.ts     Postgres job queue: SKIP LOCKED claim, leases, reaper
 server/storage/          BlobStore interface; FsBlobStore (tests), S3BlobStore (prod)
-workers/main.ts          job loop + handlers (inspect, probe, build, capture, verify, export)
+workers/main.ts          job loop + handlers (inspect, native analysis, probe, build, capture, verify, export)
 workers/execution/       harness.ts (case runner), runners.ts (Docker runners, hardeningArgs)
-workers/analysis/builtin-elf/   ELF parser + eligibility (no Ghidra yet)
+workers/analysis/builtin-elf/   ELF parser + eligibility
+workers/analysis/rea/    bounded REA/Ghidra Docker runner and evidence normalization
 workers/export/          export builder, deterministic zip, replay templates
 packages/contracts/      zod schemas shared by UI and API
 packages/compare/        pure comparison engine; bundled into every export

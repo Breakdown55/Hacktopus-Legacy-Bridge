@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
+import Link from 'next/link';
 import Icon from './Icon';
-import { age, stages } from '@/lib/projects';
+import { age, projectPath, stages } from '@/lib/projects';
 import type { Project } from '@/lib/types';
 
 function Progress({ project }: { project: Project }) {
@@ -16,7 +17,7 @@ function Progress({ project }: { project: Project }) {
       {stages.map((stage, i) => (
         <span key={stage} className="step" aria-hidden="true">
           {i === complete && project.needs ? (
-            <span className="dot needs" title={stage + ' needs your input'}>?</span>
+            <span className="dot needs" title={stage + ' needs your input'}><Icon name="question" /></span>
           ) : (
             <span className={'dot ' + (i < complete ? 'done' : i === complete ? 'current' : '')} />
           )}
@@ -29,13 +30,12 @@ function Progress({ project }: { project: Project }) {
 
 type Props = {
   projects: Project[];
-  onOpen: (id: string) => void;
   onDownload: (project: Project) => void;
   onDelete: (project: Project) => void;
   onNew: () => void;
 };
 
-export default function Picker({ projects, onOpen, onDownload, onDelete, onNew }: Props) {
+export default function Picker({ projects, onDownload, onDelete, onNew }: Props) {
   return (
     <section className="picker">
       <h1>Your Projects</h1>
@@ -43,7 +43,7 @@ export default function Picker({ projects, onOpen, onDownload, onDelete, onNew }
         {projects.map(project => (
           <article className="project" key={project.id}>
             <header className="card-tools">
-              <h2>{project.name}</h2>
+              <h2><Link className="project-link" href={projectPath(project.id)}>{project.name}</Link></h2>
               <div className="controls">
                 <button type="button" className="icon" title="Download" aria-label={'Download ' + project.name} onClick={() => onDownload(project)}>
                   <Icon name="download" />
@@ -59,9 +59,6 @@ export default function Picker({ projects, onOpen, onDownload, onDelete, onNew }
             </div>
             <footer className="project-footer">
               <p>Edited {age(project.edited)}</p>
-              <button type="button" className="project-open" aria-label={'Open ' + project.name} onClick={() => onOpen(project.id)}>
-                Open <span aria-hidden="true">→</span>
-              </button>
             </footer>
           </article>
         ))}

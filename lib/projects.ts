@@ -3,8 +3,13 @@ import type { Project } from './types';
 export const storageKey = 'legacy-bridge-projects-v1';
 export const stages = ['Import', 'Select', 'Modernize', 'Verify', 'Export'];
 
+export function projectPath(id: string, stage?: number) {
+  const root = '/projects/' + encodeURIComponent(id);
+  return stage === undefined ? root : root + '/' + stages[stage].toLowerCase();
+}
+
 export const headings = [
-  ['Import source code', 'Upload the code you want to modernize and add any project context.'],
+  ['Import executable', 'Upload the executable you want to modernize and add any project context.'],
   ['Select features', 'Choose the parts of the legacy application you want to modernize.'],
   ['Modularize code', 'Review how the selected features will be separated and packaged.'],
   ['Verify results', 'Review the verification checks before exporting.'],
