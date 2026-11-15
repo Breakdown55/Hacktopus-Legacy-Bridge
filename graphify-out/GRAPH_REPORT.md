@@ -1,48 +1,48 @@
 # Graph Report - Hacktopus-Legacy-Bridge  (2026-11-14)
 
 ## Corpus Check
-- 186 files · ~72,414 words
+- 209 files · ~88,437 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 10 file(s) not represented in the graph (top: (none) 8, .example 1, .css 1)
 
 ## Summary
-- 1131 nodes · 2813 edges · 80 communities (75 shown, 5 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 61 edges (avg confidence: 0.87)
+- 1302 nodes · 3419 edges · 92 communities (90 shown, 2 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 69 edges (avg confidence: 0.87)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `213d68bd`
+- Built from commit: `622aa899`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- API Handlers & Route Helpers
+- handlers.ts
 - BlobStore
-- Job Queue & Case Domain
+- runtime.ts
 - ContextPanel.tsx
 - Compare Engine
-- App Wiring & Test Tooling
+- ProjectHome.tsx
 - Docker Compose Infra
 - Status Contracts
-- Tar & Export Zip
+- handlers/build.ts
 - tsconfig Settings
 - Dev Dependencies
 - Runtime Dependencies
 - UI Screenshot Concepts
-- Docs: Plan, gVisor, Known Gaps
-- package.json Metadata
-- wordfreq C Fixture
+- wordfreq.c
+- getHeads
+- scope.test.ts
 - npm Scripts
 - wordfreq TS Replacement
 - compare package.json
 - contracts package.json
-- lib/projects.ts
+- react
 - API Route [jid]
 - API Route [pid]
 - API Route scope-draft
 - API Route projects
 - API Route download
-- API Route [eid]
+- runners.ts
 - API Route cancel
 - API Route builds
 - API Route [...path]
@@ -72,7 +72,7 @@
 - analysis.test.ts
 - s1-client.ts
 - EvidencePanel.tsx
-- s1.ts
+- codex-jobs.ts
 - StagePage
 - StageFrame.tsx
 - codex-worker.ts
@@ -82,44 +82,56 @@
 - 7. Execution and verification design
 - 8. Security and operational requirements
 - f1-runner.mjs
-- f1-analysis-spike.md
-- intcalc.c
+- modules.ts
+- codex.ts
 - 12. Decisions and open questions
 - 1. Backend scope and MVP boundary
 - 2. Recommended architecture
 - 4. State machines and invariants
-- F1 · REA and Ghidra feasibility
-- rand.c
+- verification.ts
+- run.ts
 - analysis-runs/route.ts
 - 10. Implementation sequence
 - 6. Analysis and generation integration
 - 9. Export contract
-- tsx@^4.23.15
-- typescript@^7.0.2
+- common.ts
+- analysis.ts
+- import-to-export.test.ts
+- generation.test.ts
+- queue.test.ts
+- ref_node_path
+- analysis.test.ts
+- Db
+- api.test.ts
+- ctx.ts
+- ImportStage.tsx
+- Legacy Bridge
+- [rid]/route.ts
+- findings/route.ts
 
 ## God Nodes (most connected - your core abstractions)
-1. `DomainError` - 50 edges
-2. `uuidv7()` - 44 edges
-3. `api` - 38 edges
-4. `getHeads()` - 32 edges
-5. `Db` - 28 edges
-6. `digest()` - 24 edges
-7. `react` - 23 edges
-8. `projectPath()` - 22 edges
-9. `BlobStore` - 21 edges
-10. `vitest` - 19 edges
+1. `DomainError` - 56 edges
+2. `uuidv7()` - 50 edges
+3. `getHeads()` - 41 edges
+4. `api` - 40 edges
+5. `Db` - 34 edges
+6. `digest()` - 26 edges
+7. `react` - 25 edges
+8. `BlobStore` - 24 edges
+9. `projectPath()` - 24 edges
+10. `vitest` - 24 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `12.1 Major decisions` --references--> `CodeGenerator`  [INFERRED]
+  docs/backend-plan.md → workers/generation/provider.ts
+- `2.1 Components` --references--> `CodeGenerator`  [INFERRED]
+  docs/backend-plan.md → workers/generation/provider.ts
 - `What exists vs. what is proposed (repository inspection, commit `4c52d2b`)` --references--> `downloadPlan()`  [INFERRED]
   docs/backend-plan.md → lib/projects.ts
-- `Invariants to keep (plan §4.4)` --references--> `judge()`  [INFERRED]
-  CLAUDE.md → packages/compare/src/judge.ts
+- `Legacy Bridge — Backend Implementation Plan (with implementation status)` --references--> `S3BlobStore`  [INFERRED]
+  docs/backend-plan.md → server/storage/s3.ts
 - `Legacy Bridge — Backend Implementation Plan (with implementation status)` --references--> `Db`  [INFERRED]
   docs/backend-plan.md → server/db/db.ts
-- `Invariants to keep (plan §4.4)` --references--> `bindingDigest()`  [INFERRED]
-  CLAUDE.md → server/domain/verification.ts
-- `Gotchas learned the hard way` --references--> `route()`  [INFERRED]
-  CLAUDE.md → server/http/handler.ts
 
 ## Import Cycles
 - None detected.
@@ -127,31 +139,31 @@
 ## Hyperedges (group relationships)
 - **Project cards on the Your Projects screen** — screenshot_2026_11_14_105744_banking_tools, screenshot_2026_11_14_105744_billing_portal, screenshot_2026_11_14_105744_inventory_app [EXTRACTED 1.00]
 
-## Communities (80 total, 5 thin omitted)
+## Communities (92 total, 2 thin omitted)
 
-### Community 0 - "API Handlers & Route Helpers"
-Cohesion: 0.05
-Nodes (108): RFC-9562, COMPARE_ENGINE_VERSION, analysisRequest, P, pid(), projectOf(), sha, text (+100 more)
+### Community 0 - "handlers.ts"
+Cohesion: 0.18
+Nodes (21): analysisRequest, P, pid(), projectOf(), sha, text, uuid, DomainError (+13 more)
 
 ### Community 1 - "BlobStore"
-Cohesion: 0.13
-Nodes (8): App, assertSafe(), blobKey(), BlobStore, PresignedPut, stagingKey(), FsBlobStore, S3BlobStore
+Cohesion: 0.20
+Nodes (5): assertSafe(), blobKey(), stagingKey(), FsBlobStore, S3BlobStore
 
-### Community 2 - "Job Queue & Case Domain"
-Cohesion: 0.06
-Nodes (68): Isolation (read before touching runners or the worker image), judge(), CaseInput, CaseSetEntry, CONTROLS, ensureEnvironment(), EnvDef, finalizeRun() (+60 more)
+### Community 2 - "runtime.ts"
+Cohesion: 0.17
+Nodes (15): ReaAnalysisRunner, RunOutcome, OriginalRunner, ReplacementRunner, sha(), generateHandler(), inspectHandler(), RUN_IMAGE (+7 more)
 
 ### Community 3 - "ContextPanel.tsx"
-Cohesion: 0.17
-Nodes (18): AnalysisPanel(), ContextPanel(), attachMedia(), onDrag(), useAttachment(), Props, Icon(), icons (+10 more)
+Cohesion: 0.34
+Nodes (12): ContextPanel(), attachMedia(), onDrag(), useAttachment(), Props, accessAttachments(), addAttachments(), Attachment (+4 more)
 
 ### Community 4 - "Compare Engine"
-Cohesion: 0.06
-Nodes (46): RFC-9457, zod@^4.6.7, compare(), compareBytes(), CompareResult, countChanged(), empty(), excerpt() (+38 more)
+Cohesion: 0.07
+Nodes (41): compare(), compareBytes(), CompareResult, countChanged(), empty(), excerpt(), firstDifference(), globToRegExp() (+33 more)
 
-### Community 5 - "App Wiring & Test Tooling"
-Cohesion: 0.08
-Nodes (33): runtime, runtime, pg@^8.23.1, pg, vitest, analysisStatus(), claimSchema, command (+25 more)
+### Community 5 - "ProjectHome.tsx"
+Cohesion: 0.19
+Nodes (15): Page(), Icon(), icons, Picker(), Progress(), Props, DialogState, ProjectHome() (+7 more)
 
 ### Community 6 - "Docker Compose Infra"
 Cohesion: 0.07
@@ -161,37 +173,37 @@ Nodes (28): context, dockerfile, COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS,
 Cohesion: 0.11
 Nodes (22): AnalysisEligibility, ArtifactRole, ExecutionEligibility, JobKind, JobStatus, Role, bin(), image (+14 more)
 
-### Community 8 - "Tar & Export Zip"
-Cohesion: 0.14
-Nodes (14): oct(), packTar(), pad(), unpackTar(), buildExport(), BuiltExport, bundleHarness(), j() (+6 more)
+### Community 8 - "handlers/build.ts"
+Cohesion: 0.43
+Nodes (5): oct(), packTar(), pad(), unpackTar(), buildHandler()
 
 ### Community 9 - "tsconfig Settings"
 Cohesion: 0.11
 Nodes (18): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModules, jsx, lib, module (+10 more)
 
 ### Community 10 - "Dev Dependencies"
-Cohesion: 0.14
-Nodes (14): devDependencies, @electric-sql/pglite@^0.5.16, fast-check@^4.10.2, @types/node@^26.6.6, @types/pg@^8.23.1, @types/react@^19.3.0, @types/react-dom@^19.3.0, vitest@^5.1.0 (+6 more)
+Cohesion: 0.10
+Nodes (26): author, description, devDependencies, @electric-sql/pglite@^0.5.16, fast-check@^4.10.2, tsx@^4.23.15, @types/node@^26.6.6, @types/pg@^8.23.1 (+18 more)
 
 ### Community 11 - "Runtime Dependencies"
-Cohesion: 0.18
-Nodes (11): dependencies, @aws-sdk/client-s3@^3.1169.0, @aws-sdk/s3-request-presigner@^3.1169.0, esbuild@^0.28.2, next@^16.4.6, react@^19.3.1, react-dom@^19.3.1, @aws-sdk/client-s3 (+3 more)
+Cohesion: 0.15
+Nodes (13): dependencies, @aws-sdk/client-s3@^3.1169.0, @aws-sdk/s3-request-presigner@^3.1169.0, esbuild@^0.28.2, next@^16.4.6, pg@^8.23.1, react@^19.3.1, react-dom@^19.3.1 (+5 more)
 
 ### Community 12 - "UI Screenshot Concepts"
 Cohesion: 0.18
 Nodes (11): Legacy Bridge Your Projects Screenshot, Add Project Button (blue circular plus), Banking tools card (Taxes and Stocks, 4 of 5 stages, edited 2 days ago), Billing portal card (Invoicing and payments, all 5 stages complete, edited 1 week ago), Download and Delete Card Actions, Legacy Bridge Header Bar, Question Mark Badge (orange, on Banking tools), Inventory app card (Stock and ordering, 2 of 5 stages, edited 3 hours ago) (+3 more)
 
-### Community 13 - "Docs: Plan, gVisor, Known Gaps"
-Cohesion: 0.22
-Nodes (9): gVisor (runsc) on a worker host, Spike F2 (harness x20, libfaketime, setarch -R, start latency), Legacy Bridge Backend Implementation Plan, Backend (slice S1), Known gaps (gVisor, LB_SANDBOX=direct, S7 login, S2 Ghidra/REA, S4 generation, UI not wired), Legacy Bridge, Test suite (unit, API, e2e, PostgreSQL, S3 integration), UI prototype (Next.js App Router + React) (+1 more)
+### Community 13 - "wordfreq.c"
+Cohesion: 0.05
+Nodes (30): Commands and result shapes, F1 · REA and Ghidra feasibility, Inputs and method, Reproduce, Results, Current state, Legacy Bridge Codex handoff, Next run on the actual two laptops (+22 more)
 
-### Community 14 - "package.json Metadata"
-Cohesion: 0.18
-Nodes (10): author, bugs, url, description, homepage, keywords, license, name (+2 more)
+### Community 14 - "getHeads"
+Cohesion: 0.27
+Nodes (14): canonical(), digest(), assertExecutionPermitted(), CaseSetEntry, CaseSpec, createCaseSet(), createPolicy(), createTestCase() (+6 more)
 
-### Community 15 - "wordfreq C Fixture"
-Cohesion: 0.38
-Nodes (3): add(), main(), stopped()
+### Community 15 - "scope.test.ts"
+Cohesion: 0.13
+Nodes (18): createScopeRevision(), decideScope(), HEAD_COLUMNS, HeadName, Heads, putScopeDraft(), validateScopeEvidence(), approve() (+10 more)
 
 ### Community 16 - "npm Scripts"
 Cohesion: 0.18
@@ -209,9 +221,9 @@ Nodes (6): main, name, private, type, types, version
 Cohesion: 0.29
 Nodes (6): main, name, private, type, types, version
 
-### Community 20 - "lib/projects.ts"
+### Community 20 - "react"
 Cohesion: 0.13
-Nodes (32): metadata, RootLayout(), PrototypeResume(), ResumeProject(), Picker(), Progress(), Props, DialogState (+24 more)
+Nodes (25): metadata, RootLayout(), Layout(), PrototypeResume(), ResumeProject(), ProjectLayout(), ProjectContext, ProjectProvider() (+17 more)
 
 ### Community 21 - "API Route [jid]"
 Cohesion: 0.50
@@ -233,9 +245,9 @@ Nodes (4): dynamic, GET, POST, runtime
 Cohesion: 0.50
 Nodes (3): dynamic, GET, runtime
 
-### Community 26 - "API Route [eid]"
-Cohesion: 0.50
-Nodes (3): dynamic, GET, runtime
+### Community 26 - "runners.ts"
+Cohesion: 0.15
+Nodes (13): Isolation (read before touching runners or the worker image), DockerReaAnalysisRunner, CaseRun, DockerOpts, DockerOriginalRunner, DockerReplacementRunner, dockerRun(), hardeningArgs() (+5 more)
 
 ### Community 27 - "API Route cancel"
 Cohesion: 0.50
@@ -282,8 +294,8 @@ Cohesion: 0.50
 Nodes (3): dynamic, POST, runtime
 
 ### Community 38 - "API Route scope-revisions"
-Cohesion: 0.50
-Nodes (3): dynamic, POST, runtime
+Cohesion: 0.40
+Nodes (4): dynamic, GET, POST, runtime
 
 ### Community 39 - "API Route source-revisions"
 Cohesion: 0.50
@@ -334,40 +346,40 @@ Cohesion: 0.50
 Nodes (3): dynamic, GET, runtime
 
 ### Community 52 - "Repository Metadata"
-Cohesion: 0.67
-Nodes (3): repository, type, url
+Cohesion: 0.30
+Nodes (5): bugs, url, repository, type, url
 
 ### Community 53 - "analysis.test.ts"
-Cohesion: 0.07
-Nodes (45): analyze(), assertProvenance(), call(), Finding, findings(), Handler, ok(), outsider (+37 more)
+Cohesion: 0.14
+Nodes (23): buildReaAnalysisResult(), canonicalReaAddress(), evidenceAddress(), inventoryFindings(), normalizeReaEvidence(), object(), OPERATIONS, OperationStatus (+15 more)
 
 ### Community 54 - "s1-client.ts"
-Cohesion: 0.11
-Nodes (29): Page(), Layout(), ProjectLayout(), saveRaw(), Export(), download(), S1Home(), act() (+21 more)
+Cohesion: 0.19
+Nodes (20): Export(), build(), download(), S1Home(), act(), create(), download(), refresh() (+12 more)
 
 ### Community 55 - "EvidencePanel.tsx"
-Cohesion: 0.12
-Nodes (27): active(), addressOf(), AnalysisRun, Candidate, Citation, EvidencePanel(), FindingDetail(), FindingDetails (+19 more)
+Cohesion: 0.05
+Nodes (63): active(), addressOf(), AnalysisRun, Candidate, Citation, EvidencePanel(), indexArtifact(), FindingDetail() (+55 more)
 
-### Community 56 - "s1.ts"
-Cohesion: 0.11
-Nodes (24): runtime, runtime, runtime, runtime, Commands, Conventions, Gotchas learned the hard way, Invariants to keep (plan §4.4) (+16 more)
+### Community 56 - "codex-jobs.ts"
+Cohesion: 0.06
+Nodes (52): POST, runtime, runtime, runtime, runtime, runtime, runtime, runtime (+44 more)
 
 ### Community 57 - "StagePage"
 Cohesion: 0.18
-Nodes (15): Page(), Page(), Page(), Page(), Page(), S1Stage(), useOperation(), StagePage() (+7 more)
+Nodes (16): Page(), Page(), Page(), Page(), Page(), S1Stage(), useOperation(), StagePage() (+8 more)
 
 ### Community 58 - "StageFrame.tsx"
 Cohesion: 0.17
-Nodes (22): indexArtifact(), requestPseudocode(), build(), Import(), probe(), upload(), Modernize(), build() (+14 more)
+Nodes (24): Import(), probe(), upload(), Diagnostic, Modernize(), generate(), saveEdit(), upload() (+16 more)
 
 ### Community 59 - "codex-worker.ts"
-Cohesion: 0.17
-Nodes (11): AnalysisResult, AnalysisStatus, MAX_ANALYSIS_BYTES, config(), Failure, Job, main(), processJob() (+3 more)
+Cohesion: 0.15
+Nodes (17): config(), Failure, Job, main(), processJob(), readEvidence(), run(), schema (+9 more)
 
 ### Community 60 - "api"
-Cohesion: 0.15
-Nodes (9): GET, runtime, GET, runtime, GET, runtime, GET, runtime (+1 more)
+Cohesion: 0.14
+Nodes (10): GET, runtime, dynamic, GET, runtime, GET, runtime, GET (+2 more)
 
 ### Community 61 - "3. Domain model and persistence"
 Cohesion: 0.18
@@ -386,12 +398,16 @@ Cohesion: 0.25
 Nodes (8): 8.1 Untrusted execution and parsing, 8.2 Tenant isolation, 8.3 Credentials, 8.4 Temporary artifacts and sensitive logs, 8.5 Audit events (in `events`), 8.6 Observability, 8.7 Storage limits and quotas (MVP defaults, per org, configurable), 8. Security and operational requirements
 
 ### Community 65 - "f1-runner.mjs"
-Cohesion: 0.29
+Cohesion: 0.25
 Nodes (6): all, benchmark(), dataSize(), operations, selected, suites
 
-### Community 67 - "intcalc.c"
-Cohesion: 0.38
-Nodes (3): calculate(), main(), parse_input()
+### Community 66 - "modules.ts"
+Cohesion: 0.18
+Nodes (17): requestGeneration(), createModuleRevision(), filesOf(), findDisallowedImports(), GeneratedInfo, getModuleFiles(), MODULE_LIMITS, ModuleInput (+9 more)
+
+### Community 67 - "codex.ts"
+Cohesion: 0.12
+Nodes (18): moduleOutput, request, success, CodexGenerator, Event, events(), ExecOptions, ExecResult (+10 more)
 
 ### Community 68 - "12. Decisions and open questions"
 Cohesion: 0.33
@@ -409,9 +425,13 @@ Nodes (6): 2.1 Components, 2.2 Diagram, 2.3 Trust and process boundaries, 2.4 Sy
 Cohesion: 0.40
 Nodes (5): 4.1 Separate status dimensions (never collapsed into one field), 4.2 Lifecycles, 4.3 Failure and concurrency behavior, 4.4 Invariants (enforced by the backend regardless of UI), 4. State machines and invariants
 
-### Community 72 - "F1 · REA and Ghidra feasibility"
-Cohesion: 0.40
-Nodes (5): Commands and result shapes, F1 · REA and Ghidra feasibility, Inputs and method, Reproduce, Results
+### Community 72 - "verification.ts"
+Cohesion: 0.16
+Nodes (12): COMPARE_ENGINE_VERSION, bindingDigest(), BindingInput, createVerificationRun(), StaleReason, VerifyRequest, doc, orgA (+4 more)
+
+### Community 73 - "run.ts"
+Cohesion: 0.20
+Nodes (10): pg, db, dir, migrate(), createPgDb(), wrap(), main(), testDb() (+2 more)
 
 ### Community 74 - "analysis-runs/route.ts"
 Cohesion: 0.50
@@ -429,30 +449,82 @@ Nodes (4): 6.1 Analysis adapter, 6.2 What REA provides vs. what we build vs. unk
 Cohesion: 0.50
 Nodes (4): 9.1 Package structure, 9.2 Manifest (abridged), 9.3 Integrity and reproducibility, 9. Export contract
 
+### Community 78 - "common.ts"
+Cohesion: 0.24
+Nodes (13): judge(), finalizeRun(), recordResult(), jobDir(), loadObservation(), stageSource(), storeObservation(), tmpIn() (+5 more)
+
+### Community 80 - "analysis.ts"
+Cohesion: 0.16
+Nodes (21): AnalysisRequest, evidenceBundle(), FINDING_KINDS, FindingKind, FindingRow, getFinding(), getRawEvidence(), listCandidates() (+13 more)
+
+### Community 81 - "import-to-export.test.ts"
+Cohesion: 0.10
+Nodes (21): RFC-9562, uuidv7(), CONTROLS, ensureEnvironment(), EnvDef, createExport(), completeUpload(), createUpload() (+13 more)
+
+### Community 82 - "generation.test.ts"
+Cohesion: 0.12
+Nodes (13): call(), editor, fake, generate(), org, other, otherUser, pid (+5 more)
+
+### Community 83 - "queue.test.ts"
+Cohesion: 0.20
+Nodes (16): cancel(), claim(), EnqueueInput, finish(), Job, LEASE_SECONDS, retryOrFail(), org (+8 more)
+
+### Community 86 - "ref_node_path"
+Cohesion: 0.26
+Nodes (8): node(), LIMITS, runCase(), RunRequest, safeJoin(), sha(), Snap, walk()
+
+### Community 87 - "analysis.test.ts"
+Cohesion: 0.13
+Nodes (22): analyze(), assertProvenance(), call(), Finding, findings(), Handler, ok(), outsider (+14 more)
+
+### Community 88 - "Db"
+Cohesion: 0.17
+Nodes (6): App, Db, BlobStore, PresignedPut, CodeGenerator, RemoteCodexGenerator
+
+### Community 89 - "api.test.ts"
+Cohesion: 0.13
+Nodes (10): vitest, setApp(), A, B, call(), ids, root, Who (+2 more)
+
+### Community 90 - "ctx.ts"
+Cohesion: 0.21
+Nodes (9): Ctx, GenerationInput, citedFindingIds(), getScopeRevision(), listScopeRevisions(), Row, Status, summarize() (+1 more)
+
+### Community 93 - "ImportStage.tsx"
+Cohesion: 0.15
+Nodes (12): AnalysisPanel(), choosePrimary(), ImportStage(), onDrag(), selectFile(), AnalysisResult, AnalysisStatus, MAX_ANALYSIS_BYTES (+4 more)
+
+### Community 94 - "Legacy Bridge"
+Cohesion: 0.29
+Nodes (6): Commands, Conventions, Invariants to keep (plan §4.4), Layout, Legacy Bridge, Repo etiquette
+
+### Community 98 - "[rid]/route.ts"
+Cohesion: 0.50
+Nodes (3): dynamic, GET, runtime
+
 ## Ambiguous Edges - Review These
 - `Question Mark Badge (orange, on Banking tools)` → `Five-step Progress Indicator`  [AMBIGUOUS]
   Screenshot 2026-11-14 105744.png · relation: conceptually_related_to
 
 ## Knowledge Gaps
 - **10 isolated node(s):** `RFC-9457`, `RFC-9562`, `Add Project Button (blue circular plus)`, `Billing portal card (Invoicing and payments, all 5 stages complete, edited 1 week ago)`, `Download and Delete Card Actions` (+5 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 456 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **5 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 521 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **2 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Legacy Bridge — Backend Implementation Plan (with implementation status)` connect `Legacy Bridge — Backend Implementation Plan (with implementation status)` to `8. Security and operational requirements`, `BlobStore`, `f1-analysis-spike.md`, `12. Decisions and open questions`, `1. Backend scope and MVP boundary`, `2. Recommended architecture`, `4. State machines and invariants`, `App Wiring & Test Tooling`, `10. Implementation sequence`, `6. Analysis and generation integration`, `9. Export contract`, `3. Domain model and persistence`, `7. Execution and verification design`?**
-  _High betweenness centrality (0.135) - this node is a cross-community bridge._
+- **Why does `vitest` connect `api.test.ts` to `BlobStore`, `codex.ts`, `Compare Engine`, `Status Contracts`, `verification.ts`, `run.ts`, `Dev Dependencies`, `scope.test.ts`, `import-to-export.test.ts`, `generation.test.ts`, `queue.test.ts`, `EvidencePanel.tsx`, `ref_node_path`, `analysis.test.ts`, `codex-jobs.ts`, `runners.ts`?**
+  _High betweenness centrality (0.095) - this node is a cross-community bridge._
 - **What connects `RFC-9457`, `RFC-9562`, `Add Project Button (blue circular plus)` to the rest of the system?**
   _10 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `API Handlers & Route Helpers` be split into smaller, more focused modules?**
-  _Cohesion score 0.05330948121645796 - nodes in this community are weakly interconnected._
-- **Why does `react` connect `lib/projects.ts` to `ContextPanel.tsx`, `Runtime Dependencies`, `package.json Metadata`, `s1-client.ts`, `EvidencePanel.tsx`, `StagePage`, `StageFrame.tsx`, `codex-worker.ts`?**
-  _High betweenness centrality (0.119) - this node is a cross-community bridge._
-- **Should `BlobStore` be split into smaller, more focused modules?**
-  _Cohesion score 0.13213213213213212 - nodes in this community are weakly interconnected._
-- **Why does `Db` connect `App Wiring & Test Tooling` to `API Handlers & Route Helpers`, `BlobStore`, `Job Queue & Case Domain`, `Tar & Export Zip`, `Legacy Bridge — Backend Implementation Plan (with implementation status)`?**
-  _High betweenness centrality (0.094) - this node is a cross-community bridge._
+- **Should `Compare Engine` be split into smaller, more focused modules?**
+  _Cohesion score 0.06558441558441558 - nodes in this community are weakly interconnected._
+- **Why does `Legacy Bridge — Backend Implementation Plan (with implementation status)` connect `Legacy Bridge — Backend Implementation Plan (with implementation status)` to `8. Security and operational requirements`, `BlobStore`, `12. Decisions and open questions`, `1. Backend scope and MVP boundary`, `2. Recommended architecture`, `4. State machines and invariants`, `10. Implementation sequence`, `6. Analysis and generation integration`, `wordfreq.c`, `9. Export contract`, `Db`, `3. Domain model and persistence`, `7. Execution and verification design`?**
+  _High betweenness centrality (0.068) - this node is a cross-community bridge._
+- **Should `Docker Compose Infra` be split into smaller, more focused modules?**
+  _Cohesion score 0.07389162561576355 - nodes in this community are weakly interconnected._
+- **Why does `react` connect `react` to `ContextPanel.tsx`, `ProjectHome.tsx`, `Dev Dependencies`, `Runtime Dependencies`, `s1-client.ts`, `EvidencePanel.tsx`, `StagePage`, `StageFrame.tsx`, `ImportStage.tsx`?**
+  _High betweenness centrality (0.066) - this node is a cross-community bridge._
 
 ### Low-confidence Hints
 _AMBIGUOUS edges — the extractor was unsure. Verify before acting on these._
