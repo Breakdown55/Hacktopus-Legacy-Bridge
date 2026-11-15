@@ -1,17 +1,25 @@
 export const RUN_CASES = `#!/usr/bin/env node
 // Replays every case through the module's CLI shim and compares against the recorded references.
-// Usage: node harness/run-cases.mjs [--out replay-report.json]
+// Usage: node harness/run-cases.mjs [--out replay-report.json] [--docker | --original]
 // Exits 0 only if every outcome equals results/verification-summary.json.
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { judge, runCase, REPLACEMENT_CONTROLS } from './lib.mjs';
+import { judge, runCase, REPLACEMENT_CONTROLS, parseReplayArgs, replayInDocker, replayOriginal } from './lib.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const outIdx = process.argv.indexOf('--out');
-const outFile = outIdx > 0 ? process.argv[outIdx + 1] : 'replay-report.json';
+const args = parseReplayArgs(process.argv.slice(2), process.env);
+if ('error' in args) {
+  console.error(args.error + '\\nUsage: node harness/run-cases.mjs [--out FILE] [--docker | --original] [--docker-bin PATH]');
+  process.exit(2);
+}
+// --docker replays inside a hardened container built from environment/Dockerfile.replacement.
+// --original recaptures the cases from original/ (only if the package includes it) and reports whether the stored references still reproduce; it never changes them.
+if (args.mode === 'docker') process.exit(replayInDocker(root, args));
+if (args.mode === 'original') process.exit(await replayOriginal(root, args));
+const outFile = args.out;
 const json = (p) => JSON.parse(readFileSync(join(root, p), 'utf8'));
 const policy = json('policy/comparison-policy.json');
 const expected = json('results/verification-summary.json');

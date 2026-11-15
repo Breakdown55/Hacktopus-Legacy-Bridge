@@ -161,7 +161,7 @@ describe.skipIf(skip)('S1: import -> export (real ELF in Docker)', () => {
     expect(row.package_blob_sha256).toBeTruthy();
     expect((await getProgress(c, project)).completed_steps).toBe(5);
     expect(row.manifest.summary).toMatchObject({ match: 10, difference: 0, couldnt_run: 0, needs_reference: 0 });
-    expect(row.manifest.binding.verification_run).toMatchObject({ completeness: 'complete', applies_to_current_at_export: true });
+    expect(row.manifest.binding.verification_run).toMatchObject({ completeness: 'complete' });
 
     const work = mkdtempSync(join(tmpdir(), 'e2e-export-'));
     writeFileSync(join(work, 'p.zip'), await c.store.get(org, row.package_blob_sha256));

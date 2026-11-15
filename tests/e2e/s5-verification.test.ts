@@ -3,10 +3,12 @@
  *  1. intcalc naive replacement -> `difference` with byte/line/column location.
  *  2. The same replacement under a tolerance policy -> `match`, normalized, raw_equal=false, with a trace; an overflow case stays `difference`.
  *  3. rand reference is captured `deterministic=false`; it never matches without an explicit rule.
+ *  S6: the tolerance and ruled runs are exported, unzipped, integrity-checked and replayed on the host, with `--docker`, and (intcalc) with `--original`;
+ *      replay outcomes must equal the stored summary, and the same binding rebuilt after the run goes stale keeps an identical SHA256SUMS.
  * Substitutes: PGlite, FsBlobStore, Docker runc (not gVisor), unsandboxed tsc build. Skips when Docker or fixtures are missing.
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -18,6 +20,8 @@ import { FsBlobStore } from '../../server/storage/fs';
 import type { Ctx } from '../../server/domain/ctx';
 import { completeUpload, createUpload, recordExecutionConsent, sealSourceRevision } from '../../server/domain/sources';
 import { createPolicy, createTestCase, requestCapture, requestProbe } from '../../server/domain/cases';
+import { createExport } from '../../server/domain/exports';
+import { buildExport } from '../../workers/export/build';
 import { createScopeRevision, decideScope, putScopeDraft } from '../../server/domain/projects';
 import { createModuleRevision } from '../../server/domain/modules';
 import { createVerificationRun } from '../../server/domain/verification';
@@ -84,6 +88,28 @@ describe.skipIf(skip)('S5: verification depth (real ELF in Docker)', () => {
     return { runId: r.run_id, byName: Object.fromEntries(rows.map((x) => [x.name, x])) };
   }
 
+
+  async function exportAndReplay(project: string, runId: string, includeOriginal = false) {
+    const ex = await createExport(c, project, { verification_run_id: runId, include_original_binary: includeOriginal });
+    await drain(env, ['export']);
+    const row = (await db.query<{ package_blob_sha256: string; sums_sha256: string; created_at: string }>('SELECT package_blob_sha256, sums_sha256, created_at FROM export_packages WHERE id=$1', [ex.export_id]))[0];
+    expect(row.package_blob_sha256).toBeTruthy();
+    const work = mkdtempSync(join(tmpdir(), 's5-export-'));
+    writeFileSync(join(work, 'p.zip'), await c.store.get(org, row.package_blob_sha256));
+    execFileSync('unzip', ['-q', join(work, 'p.zip'), '-d', work]);
+    const pkg = join(work, readdirSync(work).find((d) => d.startsWith('legacy-bridge-'))!);
+    const node = process.execPath;
+    expect(execFileSync(node, [join(pkg, 'harness/verify-integrity.mjs')], { encoding: 'utf8' })).toContain('integrity ok');
+    const stored = JSON.parse(readFileSync(join(pkg, 'results/verification-summary.json'), 'utf8')) as { cases: Record<string, string> };
+    const hostOut = join(work, 'host.json');
+    execFileSync(node, [join(pkg, 'harness/run-cases.mjs'), '--out', hostOut], { encoding: 'utf8', cwd: tmpdir() });
+    expect(JSON.parse(readFileSync(hostOut, 'utf8')).cases).toEqual(stored.cases);
+    const dockerOut = join(work, 'docker.json');
+    execFileSync(node, [join(pkg, 'harness/run-cases.mjs'), '--docker', '--docker-bin', docker!, '--out', dockerOut], { encoding: 'utf8', cwd: tmpdir(), timeout: 240_000 });
+    expect(JSON.parse(readFileSync(dockerOut, 'utf8')).cases).toEqual(stored.cases);
+    return { ex, row, pkg, work, stored };
+  }
+
   beforeAll(async () => {
     for (const image of [IMAGE, NODE_IMAGE]) {
       try { execFileSync(docker!, ['image', 'inspect', image], { stdio: 'ignore', timeout: 15_000 }); }
@@ -133,7 +159,21 @@ describe.skipIf(skip)('S5: verification depth (real ELF in Docker)', () => {
     for (const n of ['exact third', 'negative', 'bad args']) expect(tol.byName[n], n).toMatchObject({ outcome: 'match', raw_equal: true });
     expect(tol.byName['overflow'].outcome).toBe('difference');
     expect(tol.byName['overflow'].differences[0]).toMatchObject({ channel: 'stdout' });
-  }, 300_000);
+
+    // S6: export the tolerance run with the original included. Replay (host and container) must reproduce the stored outcomes exactly.
+    const e = await exportAndReplay(project, tol.runId, true);
+    expect(Object.values(e.stored.cases).sort()).toEqual(['difference', 'match', 'match', 'match', 'match', 'match']);
+    const original = join(e.work, 'original.json');
+    const orig = spawnSync(process.execPath, [join(e.pkg, 'harness/run-cases.mjs'), '--original', '--docker-bin', docker!, '--out', original], { encoding: 'utf8', cwd: tmpdir(), timeout: 240_000 });
+    expect(orig.status, `--original: ${orig.stdout}\n${orig.stderr}`).toBe(0);
+    expect(existsSync(original)).toBe(true);
+    const unresolved = JSON.parse(readFileSync(join(e.pkg, 'unresolved.json'), 'utf8'));
+    expect(unresolved.cases.length).toBeGreaterThan(0); // the overflow difference is listed, not hidden
+    // same binding => identical SHA256SUMS, even after the run has gone stale (a new policy moves the head)
+    await createPolicy(c, project, null);
+    const again = await buildExport({ db, store: c.store, orgId: org, exportId: e.ex.export_id, createdAt: '2099-01-01T00:00:00.000Z', repoRoot: root, includeOriginal: true });
+    expect(again.sumsSha).toBe(e.row.sums_sha256);
+  }, 600_000);
 
   it('rand: a nondeterministic reference never matches without an explicit rule', async () => {
     const { project, source } = await importProject('rand', 'rand');
@@ -158,5 +198,11 @@ describe.skipIf(skip)('S5: verification depth (real ELF in Docker)', () => {
     expect(ruled.byName['sample'].outcome).toBe('match');
     const row = (await db.query<{ summary: Record<string, number> }>('SELECT summary FROM verification_runs WHERE id=$1', [ruled.runId]))[0];
     expect(row.summary.match).toBe(1);
-  }, 300_000);
+
+    const e = await exportAndReplay(project, ruled.runId);
+    expect(Object.values(e.stored.cases)).toEqual(['match']);
+    const prov = JSON.parse(readFileSync(join(e.pkg, 'cases', Object.keys(e.stored.cases)[0], 'provenance.json'), 'utf8'));
+    expect(prov).toMatchObject({ provenance: 'captured_original', deterministic: false });
+    expect(JSON.parse(readFileSync(join(e.pkg, 'MANIFEST.json'), 'utf8')).unresolved.ignored_channels).toContain('stdout');
+  }, 600_000);
 });

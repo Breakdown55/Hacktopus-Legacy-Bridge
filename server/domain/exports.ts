@@ -3,6 +3,7 @@ import { enqueue } from '../jobs/queue';
 import type { Ctx } from './ctx';
 import { DomainError } from './errors';
 import { getHeads } from './projects';
+import { appliesToCurrent } from './verification';
 
 /** Exports are produced only from a finalized verification run (invariant 13). */
 export async function createExport(c: Ctx, projectId: string, i: { verification_run_id: string; include_original_binary?: boolean; allow_partial?: boolean }) {
@@ -21,10 +22,12 @@ export async function createExport(c: Ctx, projectId: string, i: { verification_
 }
 
 export async function getExport(c: Ctx, exportId: string) {
-  const e = (await c.db.query<{ id: string; job_id: string; manifest_sha256: string | null; sums_sha256: string | null; package_blob_sha256: string | null; expires_at: string }>('SELECT id, job_id, manifest_sha256, sums_sha256, package_blob_sha256, expires_at FROM export_packages WHERE id=$1 AND org_id=$2', [exportId, c.orgId]))[0];
+  const e = (await c.db.query<{ id: string; project_id: string; verification_run_id: string; job_id: string; manifest_sha256: string | null; sums_sha256: string | null; package_blob_sha256: string | null; expires_at: string }>('SELECT id, project_id, verification_run_id, job_id, manifest_sha256, sums_sha256, package_blob_sha256, expires_at FROM export_packages WHERE id=$1 AND org_id=$2', [exportId, c.orgId]))[0];
   if (!e) throw new DomainError('not_found', 404);
   const job = (await c.db.query<{ status: string; error: unknown }>('SELECT status, error FROM jobs WHERE id=$1', [e.job_id]))[0];
   const ready = !!e.package_blob_sha256;
   const expired = ready && new Date(e.expires_at) < new Date();
-  return { id: e.id, status: expired ? 'expired' : ready ? 'ready' : job.status === 'failed' ? 'failed' : 'building', manifest_sha256: e.manifest_sha256, sums_sha256: e.sums_sha256, download_url: ready && !expired ? `/api/v1/exports/${e.id}/download` : null, expires_at: e.expires_at, error: job.error };
+  // Computed on read, never stored and never part of the package: it changes whenever the project's heads move.
+  const applies = await appliesToCurrent(c.db, c.orgId, e.project_id, e.verification_run_id);
+  return { id: e.id, status: expired ? 'expired' : ready ? 'ready' : job.status === 'failed' ? 'failed' : 'building', manifest_sha256: e.manifest_sha256, sums_sha256: e.sums_sha256, download_url: ready && !expired ? `/api/v1/exports/${e.id}/download` : null, expires_at: e.expires_at, applies_to_current: applies?.applies_to_current ?? null, stale_reasons: applies?.stale_reasons ?? [], error: job.error };
 }
