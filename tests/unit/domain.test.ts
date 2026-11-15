@@ -8,7 +8,7 @@ import { appliesToCurrent, bindingDigest, finalizeRun, recordResult } from '../.
 
 let db: Db;
 const orgA = uuidv7(), orgB = uuidv7(), user = uuidv7(), proj = uuidv7(), src = uuidv7();
-const doc = { workflow: { name: 'x' } };
+const doc = { workflow: { name: 'x' }, behaviors: [{ id: 'b', statement: 's', basis: 'observed' }] };
 
 beforeAll(async () => {
   db = await testDb();

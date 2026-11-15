@@ -15,12 +15,18 @@ export async function getProgress(c: Ctx, projectId: string) {
     steps[0] = st.eligibility.analysis.status === 'eligible' || st.eligibility.analysis.status === 'partial';
     if (!steps[0]) needs.push({ step: 'import', code: st.eligibility.analysis.status === 'unknown' ? 'analysis_pending' : 'analysis_ineligible' });
   } else needs.push({ step: 'import', code: 'source_required' });
-  steps[1] = !!h.approved_scope_revision_id;
-  if (steps[0] && !steps[1]) needs.push({ step: 'select', code: 'scope_approval_required' });
+  // Scope approval counts only for the source revision it was written against; a re-import leaves the old approval behind.
+  let scopeSource: string | null = null;
+  if (h.approved_scope_revision_id) scopeSource = (await c.db.query<{ source_revision_id: string }>('SELECT source_revision_id FROM scope_revisions WHERE id=$1 AND org_id=$2', [h.approved_scope_revision_id, c.orgId]))[0]?.source_revision_id ?? null;
+  steps[1] = !!h.approved_scope_revision_id && scopeSource === h.current_source_revision_id;
+  if (steps[0] && !steps[1]) needs.push({ step: 'select', code: h.approved_scope_revision_id ? 'scope_source_changed' : 'scope_approval_required' });
   if (h.current_module_revision_id) {
+    const m = (await c.db.query<{ scope_revision_id: string }>('SELECT scope_revision_id FROM module_revisions WHERE id=$1 AND org_id=$2', [h.current_module_revision_id, c.orgId]))[0];
     const b = await c.db.query('SELECT 1 FROM build_results WHERE module_revision_id=$1 AND status=$2 LIMIT 1', [h.current_module_revision_id, 'succeeded']);
-    steps[2] = b.length > 0;
-    if (!steps[2]) needs.push({ step: 'modernize', code: 'build_not_succeeded' });
+    // A module built against an earlier scope revision does not satisfy the approved one.
+    steps[2] = steps[1] && b.length > 0 && m?.scope_revision_id === h.approved_scope_revision_id;
+    if (steps[1] && m?.scope_revision_id !== h.approved_scope_revision_id) needs.push({ step: 'modernize', code: 'module_scope_outdated' });
+    else if (!b.length) needs.push({ step: 'modernize', code: 'build_not_succeeded' });
   } else if (steps[1]) needs.push({ step: 'modernize', code: 'module_required' });
   if (h.current_case_set_revision_id) {
     const cs = (await c.db.query<{ entries: { reference_output_id: string | null }[] }>('SELECT entries FROM case_set_revisions WHERE id=$1', [h.current_case_set_revision_id]))[0];

@@ -1,6 +1,8 @@
 'use client';
 
 import Action from './Action';
+import Link from 'next/link';
+import { projectPath } from '@/lib/projects';
 import type { StageProps } from '../StagePage';
 
 export default function ExportStage(props: StageProps) {
@@ -18,8 +20,10 @@ export default function ExportStage(props: StageProps) {
           <ul className="files">{selected.map(s => <li key={s}>{s}.test.ts</li>)}</ul>
         </section>
       </div>
-      <p className="notice">The export contains project settings and the planned file list.</p>
-      <Action label="Download project plan" onClick={onAdvance} />
+      {selected.length
+        ? <p className="notice">The export contains project settings and the planned file list.</p>
+        : <p className="notice" role="alert">No features are selected, so there is nothing to export. <Link href={projectPath(project.id, 1)}>Select features</Link></p>}
+      <Action label="Download project plan" disabled={!selected.length} onClick={onAdvance} />
     </>
   );
 }

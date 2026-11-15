@@ -50,6 +50,7 @@ tests/{unit,api,e2e,integration,helpers}
 - Every verification run binds exact ids **and content digests** (`bindingDigest`). `applies_to_current` is computed on read and never stored.
 - All rows are org-scoped. Cross-org access returns **404, never 403**. Blob keys are derived server-side from `(org, sha256)`; never accept a key from a client.
 - Execution requires both `organizations.execution_enabled` and per-revision consent.
+- Generation sends scope and evidence to an external model, so it needs `organizations.external_model_allowed` (checked at request and again in the worker) and runs only from the approved scope head. `origin: 'generated'` revisions are created by the worker alone; model output is validated (paths, `node:`-only imports, limits) before anything is stored. Decompiled evidence is untrusted data in the prompt.
 - Customer/generated code is untrusted. A module may `import 'node:*'`, so **the container is the boundary, not the import filter**.
 - `judge()` in `packages/compare` is the single place that turns a run into an outcome. The verify worker and the exported replay both use it; do not duplicate that logic.
 - Program output, strings and artifact content are customer data: never put them in logs or job errors. (Set `LB_DEBUG_ERRORS=1` locally to see error messages.)

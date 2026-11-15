@@ -8,11 +8,14 @@ import type { Ctx } from '../server/domain/ctx';
 import type { BuildOutput } from './build/local';
 import type { OriginalRunner, ReplacementRunner } from './execution/runners';
 import type { ReaAnalysisRunner } from './analysis/rea/runner';
+import type { CodeGenerator } from './generation/provider';
 
 export interface WorkerEnv {
   db: Db; store: BlobStore; workRoot: string; workerId: string;
   original: OriginalRunner; replacement: ReplacementRunner;
   rea?: ReaAnalysisRunner;
+  /** Absent unless a provider is configured; the generate job kind is not claimed without it. */
+  generator?: CodeGenerator;
   build: (files: { path: string; content: Buffer }[]) => Promise<BuildOutput>;
 }
 export class CancelledError extends Error { constructor() { super('cancelled'); } }

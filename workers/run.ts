@@ -8,6 +8,7 @@ import { CONTROLS, ensureEnvironment } from '../server/domain/environments';
 import { S3BlobStore } from '../server/storage/s3';
 import { DockerReaAnalysisRunner } from './analysis/rea/runner';
 import { localBuild } from './build/local';
+import { AnthropicGenerator } from './generation/anthropic';
 import { DockerOriginalRunner, DockerReplacementRunner } from './execution/runners';
 import { NODE_IMAGE } from './export/build';
 import { defaultWorkerId, workerLoop } from './main';
@@ -38,6 +39,8 @@ async function main() {
     rea: analysisImage ? new DockerReaAnalysisRunner({
       image: analysisImage, runtime: process.env.LB_ANALYSIS_RUNTIME || process.env.LB_RUNTIME || undefined,
     }) : undefined,
+    // Generation sends scope and evidence to the model provider; it also needs organizations.external_model_allowed per org.
+    generator: process.env.ANTHROPIC_API_KEY ? new AnthropicGenerator({ apiKey: process.env.ANTHROPIC_API_KEY, model: process.env.LB_GENERATION_MODEL || undefined }) : undefined,
     build: localBuild,
   };
   let stop = false;

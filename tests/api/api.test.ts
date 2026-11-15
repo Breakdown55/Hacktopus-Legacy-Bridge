@@ -116,7 +116,7 @@ describe('workflow over the API', () => {
     expect((await call(api.sourceCreate, 'POST', '/s', { params: { pid: ids.pid }, body: { artifacts: [{ upload_id: bad.upload_id, path: 'x', role: 'primary_executable' }] } })).json.code).toBe('hash_mismatch');
   });
   it('scope: If-Match required (428), stale (412); approval is single-shot; module needs approved scope', async () => {
-    const doc = { workflow: { name: 'hello', invocation: { argv_template: [], stdin: 'none' } }, interface: { language: 'typescript', export: 'run' } };
+    const doc = { workflow: { name: 'hello', invocation: { argv_template: [], stdin: 'none' } }, interface: { language: 'typescript', export: 'run' }, behaviors: [{ id: 'greet', statement: 'Prints a greeting', basis: 'observed' }] };
     expect((await call(api.scopeDraftPut, 'PUT', '/d', { params: { pid: ids.pid }, body: { document: doc } })).status).toBe(428);
     expect((await call(api.scopeDraftPut, 'PUT', '/d', { params: { pid: ids.pid }, body: { document: { nope: 1 } }, headers: { 'if-match': '"v0"' } })).json.code).toBe('validation_failed');
     const v1 = await call(api.scopeDraftPut, 'PUT', '/d', { params: { pid: ids.pid }, body: { document: doc }, headers: { 'if-match': '"v0"' } });

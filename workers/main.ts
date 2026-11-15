@@ -9,12 +9,13 @@ import { probeHandler } from './handlers/probe';
 import { verifyHandler } from './handlers/verify';
 import { exportHandler } from './handlers/export';
 import { nativeAnalysisHandler } from './handlers/native-analysis';
+import { generateHandler } from './handlers/generate';
 
 export const HANDLERS: Record<string, JobHandler> = { inspect: inspectHandler, probe: probeHandler, build: buildHandler, capture: captureHandler, verify: verifyHandler, export: exportHandler };
 const NATIVE_HANDLERS: Record<string, JobHandler> = { native_index: nativeAnalysisHandler, native_deep_function: nativeAnalysisHandler };
 
-function handlersFor(env: WorkerEnv) {
-  return env.rea ? { ...HANDLERS, ...NATIVE_HANDLERS } : HANDLERS;
+function handlersFor(env: WorkerEnv): Record<string, JobHandler> {
+  return { ...HANDLERS, ...(env.rea ? NATIVE_HANDLERS : {}), ...(env.generator ? { generate: generateHandler } : {}) };
 }
 
 /** Runs one claimed job to a terminal or requeued state. Returns what happened. */
@@ -29,7 +30,12 @@ export async function runJob(env: WorkerEnv, job: Job): Promise<string> {
     if (e instanceof LeaseLostError) return 'lost'; // another worker owns it; our writes were idempotent no-ops
     if (e instanceof CancelledError) { await finish(env.db, job.id, env.workerId, { status: 'cancelled' }); return 'cancelled'; }
     // Errors carry codes only; program output and artifact content never go into job errors or logs (§8.4).
-    if (e instanceof JobError) { await finish(env.db, job.id, env.workerId, { status: 'failed', error: { code: e.code } }); return 'failed'; }
+    if (e instanceof JobError) {
+      // The one exception: generation_output_invalid carries the validator's own text (rule names and file paths we generate), never model output.
+      const reason = e.code === 'generation_output_invalid' ? e.message.slice(0, 200) : undefined;
+      await finish(env.db, job.id, env.workerId, { status: 'failed', error: reason ? { code: e.code, reason } : { code: e.code } });
+      return 'failed';
+    }
     const retryable = e instanceof RetryableError || /ECONN|ETIMEDOUT|EAI_AGAIN|\bHTTP 5\d\d\b/.test(String((e as Error).message));
     if (retryable) return retryOrFail(env.db, job.id, env.workerId, { code: 'transient', message: String((e as Error).message).slice(0, 200) });
     await finish(env.db, job.id, env.workerId, { status: 'failed', error: { code: 'internal_error', message: String((e as Error).message).slice(0, 200) } });

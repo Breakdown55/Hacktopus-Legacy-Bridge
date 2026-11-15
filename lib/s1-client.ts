@@ -69,10 +69,10 @@ export function post<T>(path: string, data?: unknown) { return s1<T>(path, { met
 
 export async function waitJob(id: string, signal: AbortSignal) {
   while (!signal.aborted) {
-    const job = await s1<{ status: string; error?: { code: string } | null }>(`/jobs/${id}`, { signal });
+    const job = await s1<{ status: string; error?: { code: string; reason?: string } | null }>(`/jobs/${id}`, { signal });
     if (job.status === 'succeeded') return;
     if (job.status === 'failed' || job.status === 'cancelled') {
-      throw new Error('Job ' + job.status + (job.error?.code ? ' (' + job.error.code + ')' : ''));
+      throw new Error('Job ' + job.status + (job.error?.code ? ' (' + job.error.code + ')' : '') + (job.error?.reason ? ': ' + job.error.reason : ''));
     }
     await new Promise(resolve => setTimeout(resolve, 1300));
   }

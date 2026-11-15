@@ -1,0 +1,195 @@
+/**
+ * S4 generation and source edits, driven through the API handlers and the worker with a FAKE provider (deterministic) and the real local `tsc` build.
+ * The Anthropic adapter has its own unit test (tests/unit/anthropic-adapter.test.ts, injected fake client) and has not been run against the live API. The tsc build is unsandboxed (dev/test).
+ */
+import { beforeAll, describe, expect, it } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { testDb } from '../helpers/testdb';
+import { uuidv7 } from '../../server/db/ids';
+import { FsBlobStore } from '../../server/storage/fs';
+import { setApp } from '../../server/app';
+import { api } from '../../server/api/handlers';
+import { drain } from '../../workers/main';
+import { generateHandler } from '../../workers/handlers/generate';
+import { controlFor, writeTree, type WorkerEnv } from '../../workers/runtime';
+import { localBuild } from '../../workers/build/local';
+import { LocalReplacementRunner } from '../../workers/execution/runners';
+import { RUN_CONTRACT, type CodeGenerator, type GenerationRequest, type GenerationResult } from '../../workers/generation/provider';
+import type { Db } from '../../server/db/db';
+
+process.env.LB_DEV_AUTH = '1';
+const root = join(__dirname, '../..');
+const org = uuidv7(), other = uuidv7(), editor = uuidv7(), otherUser = uuidv7(), pid = uuidv7(), src = uuidv7();
+let db: Db, env: WorkerEnv;
+const requests: GenerationRequest[] = [];
+let next: () => GenerationResult;
+const fake: CodeGenerator = {
+  describe: () => ({ provider: 'fake', model: 'fake-1' }),
+  async generate(req) { requests.push(structuredClone(req)); return next(); },
+};
+const GOOD = `/* LB-BEHAVIOR:count */
+export async function run(input: { argv: string[]; stdin: Uint8Array }, deps: { cwd: string }): Promise<{ stdout?: string; stderr?: string; exitCode?: number }> {
+  if (input.argv.length) return { stderr: 'usage: wc\\n', exitCode: 2 };
+  void deps;
+  return { stdout: String(Buffer.from(input.stdin).toString('utf8').split(/\\s+/).filter(Boolean).length) + '\\n' };
+}
+/* LB-UNTRANSLATED:overflow */
+`;
+const result = (over: Partial<GenerationResult> = {}): GenerationResult => ({
+  files: [{ path: 'src/index.ts', content: GOOD }], untranslated: [{ id: 'overflow', behaviorId: 'count', file: 'src/index.ts', line: 3, reason: 'Original wraps at 2^31; not reproduced', evidence: [] }],
+  notes: 'ok', usage: { inputTokens: 10, outputTokens: 20 }, transcript: { fake: true }, modelVersion: 'fake-1.0', ...over,
+});
+
+async function call(h: (r: Request, s?: any) => Promise<Response>, method: string, path: string, o: { who?: { org: string; user: string }; body?: unknown; params?: Record<string, string> } = {}) {
+  const who = o.who ?? { org, user: editor };
+  const headers: Record<string, string> = { 'content-type': 'application/json', 'x-org-id': who.org, 'x-user-id': who.user };
+  if (method === 'POST') headers['idempotency-key'] = uuidv7();
+  const res = await h(new Request(`http://t${path}`, { method, headers, body: o.body === undefined ? undefined : JSON.stringify(o.body) }), { params: Promise.resolve(o.params ?? {}) });
+  const text = await res.text();
+  return { status: res.status, json: text ? JSON.parse(text) : null };
+}
+const heads = async () => (await db.query<{ approved_scope_revision_id: string; current_module_revision_id: string }>('SELECT approved_scope_revision_id, current_module_revision_id FROM projects WHERE id=$1', [pid]))[0];
+const generate = (body: Record<string, unknown> = {}) => call(api.moduleCreate, 'POST', '/m', { params: { pid }, body: { origin: 'generated', scope_revision_id: scopeId, ...body } });
+const modules = () => db.query<{ id: string; number: number; origin: string; parent_id: string | null; generator: Record<string, any> | null; untranslated: unknown[] }>('SELECT id, number, origin, parent_id, generator, untranslated FROM module_revisions WHERE project_id=$1 ORDER BY number', [pid]);
+const lastJob = async () => (await db.query<{ status: string; error: { code: string } | null }>("SELECT status, error FROM jobs WHERE kind='generate' ORDER BY created_at DESC, id DESC LIMIT 1"))[0];
+let scopeId: string, findingId: string;
+
+beforeAll(async () => {
+  db = await testDb();
+  const store = new FsBlobStore(mkdtempSync(join(tmpdir(), 'gen-blobs-')));
+  setApp({ db, store });
+  for (const o of [org, other]) await db.query("INSERT INTO organizations(id,name) VALUES ($1,'o')", [o]);
+  for (const [o, u] of [[org, editor], [other, otherUser]]) {
+    await db.query('INSERT INTO users(id,email) VALUES ($1,$2)', [u, `${u}@x`]);
+    await db.query("INSERT INTO memberships(org_id,user_id,role) VALUES ($1,$2,'admin')", [o, u]);
+  }
+  await db.query("INSERT INTO projects(id,org_id,name) VALUES ($1,$2,'p')", [pid, org]);
+  await db.query("INSERT INTO blobs(org_id,sha256,size_bytes,storage_key) VALUES ($1,$2,1,'k')", [org, 'd'.repeat(64)]);
+  await db.query("INSERT INTO source_revisions(id,org_id,project_id,number,manifest_sha256) VALUES ($1,$2,$3,1,'m')", [src, org, pid]);
+  await db.query("INSERT INTO source_artifacts(source_revision_id,org_id,path,role,blob_sha256,size_bytes) VALUES ($1,$2,'bin/tool','primary_executable',$3,1)", [src, org, 'd'.repeat(64)]);
+  await db.query('UPDATE projects SET current_source_revision_id=$2 WHERE id=$1', [pid, src]);
+  const run = uuidv7();
+  await db.query("INSERT INTO analysis_runs(id,org_id,project_id,source_revision_id,kind,provider,params_digest,outcome) VALUES ($1,$2,$3,$4,'index','rea-ghidra','d','complete')", [run, org, pid, src]);
+  findingId = uuidv7();
+  await db.query(`INSERT INTO findings(id,org_id,source_revision_id,analysis_run_id,kind,stable_key,name,address,authority,attributes,location,artifact_path,artifact_sha256,provider_evidence_id)
+    VALUES ($1,$2,$3,$4,'function','fn:1','count_words','0x401000','tool_inferred','{"size":120}','{}','bin/tool',$5,$6)`, [findingId, org, src, run, 'd'.repeat(64), 'ev_' + 'a'.repeat(64)]);
+  env = { db, store, workRoot: mkdtempSync(join(tmpdir(), 'gen-work-')), workerId: 'w-gen', original: { run: async () => { throw new Error('no'); } }, replacement: new LocalReplacementRunner(), build: (f) => localBuild(f, { repoRoot: root }), generator: fake };
+});
+
+describe('S4 generation', () => {
+  it('a module that follows the run() contract works through the real CLI shim', async () => {
+    const built = await localBuild([{ path: 'src/index.ts', content: Buffer.from(GOOD) }], { repoRoot: root });
+    expect(built.status).toBe('succeeded');
+    const moduleDir = mkdtempSync(join(tmpdir(), 'gen-mod-'));
+    writeTree(moduleDir, built.files);
+    const out = await new LocalReplacementRunner().run({ moduleDir, workdir: mkdtempSync(join(tmpdir(), 'gen-run-')), case: { argv: [], caseEnv: {}, stdin: Buffer.from('one two  three\n'), files: [], timeoutMs: 20_000 } });
+    expect(out.incomplete).toBeUndefined();
+    expect(out.data.observation.exit).toMatchObject({ code: 0 });
+    expect(out.data.stdout.toString()).toBe('3\n');
+    const bad = await new LocalReplacementRunner().run({ moduleDir, workdir: mkdtempSync(join(tmpdir(), 'gen-run-')), case: { argv: ['--x'], caseEnv: {}, stdin: Buffer.alloc(0), files: [], timeoutMs: 20_000 } });
+    expect(bad.data.observation.exit).toMatchObject({ code: 2 });
+  });
+
+  it('needs an approved current scope and an org that allows an external model', async () => {
+    const res = await api.scopeDraftPut(new Request('http://t/d', { method: 'PUT', headers: { 'content-type': 'application/json', 'x-org-id': org, 'x-user-id': editor, 'if-match': '"v0"' }, body: JSON.stringify({ document: { workflow: { name: 'wc', invocation: { argv_template: [], stdin: 'text' } }, interface: { language: 'typescript' }, behaviors: [{ id: 'count', statement: 'Counts words', basis: 'inferred', evidence: [findingId] }, { id: 'other', statement: 'Prints a total', basis: 'observed' }] } }) }), { params: Promise.resolve({ pid }) });
+    expect(res.status).toBe(200);
+    const rev = (await call(api.scopeRevisionCreate, 'POST', '/r', { params: { pid }, body: { from_draft_version: 1 } })).json;
+    scopeId = rev.id;
+    expect((await generate()).json.code).toBe('scope_not_approved');
+    expect((await call(api.scopeDecision, 'POST', '/x', { params: { rid: scopeId }, body: { decision: 'approved', document_sha256: rev.document_sha256 } })).status).toBe(200);
+    const denied = await generate();
+    expect(denied).toMatchObject({ status: 409, json: { code: 'external_model_not_allowed' } });
+    expect(await db.query("SELECT 1 FROM jobs WHERE kind='generate'")).toHaveLength(0);
+    await db.query('UPDATE organizations SET external_model_allowed=true WHERE id=$1', [org]);
+    expect((await generate({ scope_revision_id: uuidv7() })).status).toBe(409);
+    expect((await call(api.moduleCreate, 'POST', '/m', { who: { org: other, user: otherUser }, params: { pid }, body: { origin: 'generated', scope_revision_id: scopeId } })).status).toBe(404);
+  });
+
+  it('rejects invalid model output and creates no revision', async () => {
+    const bad: [string, GenerationResult][] = [
+      ['traversal', result({ files: [{ path: 'src/../../etc/x.ts', content: 'x' }] })],
+      ['outside src and test', result({ files: [{ path: 'src/index.ts', content: GOOD }, { path: 'package.json', content: '{}' }] })],
+      ['third-party import', result({ files: [{ path: 'src/index.ts', content: "import _ from 'lodash';\n" + GOOD }] })],
+      ['dynamic import', result({ files: [{ path: 'src/index.ts', content: "const m = await import('left-pad');\n" + GOOD }] })],
+      ['no entry', result({ files: [{ path: 'src/other.ts', content: GOOD }] })],
+      ['unknown behavior in untranslated', result({ untranslated: [{ id: 'u', behaviorId: 'nope', file: '', line: 0, reason: 'x', evidence: [] }] })],
+      ['untranslated without reason', result({ untranslated: [{ id: 'u', file: '', line: 0, reason: ' ', evidence: [] }] })],
+    ];
+    for (const [name, r] of bad) {
+      next = () => r;
+      expect((await generate()).status, name).toBe(202);
+      await drain(env, ['generate']);
+      expect(await lastJob(), name).toMatchObject({ status: 'failed', error: { code: 'generation_output_invalid' } });
+      expect(await modules(), name).toHaveLength(0);
+    }
+  });
+
+  it('records provider, model, digests and transcript, passes cited evidence, and builds with marker warnings', async () => {
+    requests.length = 0;
+    next = () => result();
+    expect((await generate()).status).toBe(202);
+    await drain(env, ['generate']);
+    const [m] = await modules();
+    expect(m).toMatchObject({ number: 1, origin: 'generated', parent_id: null });
+    expect(m.generator).toMatchObject({ provider: 'fake', model: 'fake-1', model_version: 'fake-1.0', template_version: 'ts-cli-v1', input_digest: expect.stringMatching(/^[0-9a-f]{64}$/), output_digest: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect((await db.query('SELECT 1 FROM blobs WHERE org_id=$1 AND sha256=$2', [org, m.generator!.transcript_blob])).length).toBe(1);
+    expect(m.untranslated).toMatchObject([{ id: 'overflow', behaviorId: 'count' }]);
+    expect(requests[0].evidence).toMatchObject([{ findingId, kind: 'function', name: 'count_words', artifactSha256: 'd'.repeat(64) }]);
+    expect(requests[0].scope.id).toBe(scopeId);
+    expect(requests[0].target.runContract).toBe(RUN_CONTRACT);
+    expect(RUN_CONTRACT).toContain('stdin: Uint8Array'); // the shape the CLI shim passes
+    expect((await heads()).current_module_revision_id).toBe(m.id);
+
+    await drain(env, ['build']);
+    const mod = (await call(api.moduleGet, 'GET', '/m', { params: { mid: m.id } })).json;
+    expect(mod.build.status).toBe('succeeded');
+    // behavior "other" has no marker and is not listed: reported, but the build still succeeds.
+    expect(mod.build.diagnostics).toEqual([expect.objectContaining({ code: 'LB_UNADDRESSED_BEHAVIOR', severity: 'warning', message: expect.stringContaining('other') })]);
+  });
+
+  it('a retried job does not create a second revision', async () => {
+    const job = (await db.query<any>("SELECT * FROM jobs WHERE kind='generate' AND status='succeeded' ORDER BY created_at DESC LIMIT 1"))[0];
+    await generateHandler(env, { ...job, payload: job.payload }, controlFor(env, job));
+    expect(await modules()).toHaveLength(1);
+  });
+
+  it('repair is a new request from persisted state: prior files and build diagnostics, as revision N+1', async () => {
+    const [m1] = await modules();
+    requests.length = 0;
+    next = () => result({ files: [{ path: 'src/index.ts', content: GOOD + '// fixed\n' }] });
+    expect((await generate({ parent_id: m1.id, instructions: 'handle empty input' })).status).toBe(202);
+    await drain(env, ['generate']);
+    expect(requests[0].priorRevision).toMatchObject({ id: m1.id, files: [{ path: 'src/index.ts' }], buildDiagnostics: [{ code: 'LB_UNADDRESSED_BEHAVIOR' }] });
+    expect(requests[0].instructions).toBe('handle empty input');
+    const all = await modules();
+    expect(all.map((x) => [x.number, x.parent_id])).toEqual([[1, null], [2, m1.id]]);
+  });
+
+  it('a user edit creates revision N+1, inherits the untranslated list and builds automatically', async () => {
+    const [, m2] = await modules();
+    const edit = await call(api.moduleCreate, 'POST', '/m', { params: { pid }, body: { origin: 'user_edit', scope_revision_id: scopeId, parent_id: m2.id, changes: [{ path: 'src/index.ts', content: GOOD + '// edited by a person\n' }] } });
+    expect(edit).toMatchObject({ status: 201, json: { number: 3, build: { status: 'building' }, is_current: true } });
+    expect((await modules())[2]).toMatchObject({ origin: 'user_edit', parent_id: m2.id, untranslated: [{ id: 'overflow' }] });
+    await drain(env, ['build']);
+    expect((await call(api.moduleGet, 'GET', '/m', { params: { mid: edit.json.id } })).json.build.status).toBe('succeeded');
+  });
+
+  it('the API cannot create a generated revision without the worker, and the worker only claims generate when a provider is configured', async () => {
+    const { createModuleRevision } = await import('../../server/domain/modules');
+    await expect(createModuleRevision({ db, store: env.store, orgId: org, userId: editor }, pid, { origin: 'generated', scope_revision_id: scopeId, files: [{ path: 'src/index.ts', content: GOOD }] })).rejects.toMatchObject({ status: 422 });
+    expect((await generate({ instructions: 'again' })).status).toBe(202);
+    expect(await drain({ ...env, generator: undefined }, ['generate'])).toBe(0);
+    expect((await db.query("SELECT status FROM jobs WHERE kind='generate' ORDER BY created_at DESC LIMIT 1"))[0]).toMatchObject({ status: 'queued' });
+  });
+
+  it('re-approval of the scope blocks generation from the old revision', async () => {
+    await db.query("UPDATE jobs SET status='cancelled' WHERE kind='generate' AND status='queued'");
+    const put = await api.scopeDraftPut(new Request('http://t/d', { method: 'PUT', headers: { 'content-type': 'application/json', 'x-org-id': org, 'x-user-id': editor, 'if-match': '"v1"' }, body: JSON.stringify({ document: { workflow: { name: 'wc2', invocation: { argv_template: [] } }, interface: { language: 'typescript' }, behaviors: [{ id: 'count', statement: 'Counts words', basis: 'observed' }] } }) }), { params: Promise.resolve({ pid }) });
+    expect(put.status).toBe(200);
+    const rev = (await call(api.scopeRevisionCreate, 'POST', '/r', { params: { pid }, body: { from_draft_version: 2 } })).json;
+    await call(api.scopeDecision, 'POST', '/x', { params: { rid: rev.id }, body: { decision: 'approved', document_sha256: rev.document_sha256 } });
+    expect((await generate()).json.code).toBe('scope_not_current');
+  });
+});

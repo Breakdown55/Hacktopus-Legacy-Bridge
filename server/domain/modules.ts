@@ -37,8 +37,10 @@ export function validateModuleFiles(files: { path: string; content: string }[]) 
   if (!seen.has('src/index.ts')) throw new DomainError('entry_missing', 422, 'src/index.ts exporting run() is required');
 }
 
+/** Set only by the generation worker; the HTTP API cannot create 'generated' revisions directly. */
+export interface GeneratedInfo { generator: Record<string, unknown>; untranslated: unknown[] }
 export interface ModuleInput {
-  scope_revision_id: string; origin: 'user_edit' | 'customer_upload'; parent_id?: string | null; make_current?: boolean;
+  scope_revision_id: string; origin: 'user_edit' | 'customer_upload' | 'generated'; parent_id?: string | null; make_current?: boolean;
   files?: { path: string; content: string }[];
   changes?: { path: string; content?: string; delete?: boolean }[];
 }
@@ -50,7 +52,8 @@ async function filesOf(c: Ctx, moduleId: string): Promise<{ path: string; conten
 }
 
 /** Creates an immutable module revision against an approved scope and enqueues its build. */
-export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleInput) {
+export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleInput, generated?: GeneratedInfo) {
+  if ((i.origin === 'generated') !== !!generated) throw new DomainError('invalid_request', 422, 'generated revisions come from the generation worker');
   const heads = await getHeads(c.db, c.orgId, projectId);
   await assertScopeApproved(c.db, c.orgId, projectId, i.scope_revision_id);
   let files = i.files ?? [];
@@ -66,13 +69,19 @@ export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleI
   const tarBlob = await c.store.put(c.orgId, packTar(files.map((f) => ({ path: f.path, content: Buffer.from(f.content) }))));
   const treeSha = digest(manifest);
   const id = uuidv7();
+  // An edit keeps the parent's untranslated list; the build cross-check flags any marker that no longer matches.
+  let untranslated: unknown[] = generated?.untranslated ?? [];
+  if (!generated && i.origin === 'user_edit' && i.parent_id) {
+    const p = await c.db.query<{ untranslated: unknown[] }>('SELECT untranslated FROM module_revisions WHERE id=$1 AND org_id=$2 AND project_id=$3', [i.parent_id, c.orgId, projectId]);
+    untranslated = p[0]?.untranslated ?? [];
+  }
   const isHead = !i.parent_id || i.parent_id === heads.current_module_revision_id;
   return c.db.tx(async (t) => {
     for (const s of stored) await t.query('INSERT INTO blobs(org_id,sha256,size_bytes,storage_key) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [c.orgId, s.sha256, s.size, s.key]);
     await t.query('INSERT INTO blobs(org_id,sha256,size_bytes,storage_key) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [c.orgId, tarBlob.sha256, tarBlob.size, tarBlob.key]);
     const number = await nextNumber(t, 'module_revisions', projectId);
-    await t.query(`INSERT INTO module_revisions(id,org_id,project_id,number,parent_id,scope_revision_id,origin,source_tree_blob_sha256,tree_sha256,file_manifest,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [id, c.orgId, projectId, number, i.parent_id ?? null, i.scope_revision_id, i.origin, tarBlob.sha256, treeSha, JSON.stringify(manifest), c.userId]);
+    await t.query(`INSERT INTO module_revisions(id,org_id,project_id,number,parent_id,scope_revision_id,origin,source_tree_blob_sha256,tree_sha256,file_manifest,untranslated,generator,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [id, c.orgId, projectId, number, i.parent_id ?? null, i.scope_revision_id, i.origin, tarBlob.sha256, treeSha, JSON.stringify(manifest), JSON.stringify(untranslated), generated ? JSON.stringify(generated.generator) : null, c.userId]);
     let isCurrent = false;
     if (isHead || i.make_current) { await moveHead(t, c.orgId, projectId, 'current_module_revision_id', id, heads.heads_version); isCurrent = true; }
     const job = await enqueue(t, { orgId: c.orgId, projectId, kind: 'build', subjectType: 'module_revision', subjectId: id, dedupeKey: `build:${id}` });

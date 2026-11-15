@@ -8,6 +8,8 @@ import { DomainError } from '../domain/errors';
 import { createExport, getExport } from '../domain/exports';
 import { createModuleRevision, getModuleFiles } from '../domain/modules';
 import { createScopeRevision, decideScope, getHeads, putScopeDraft } from '../domain/projects';
+import { getScopeRevision, listScopeRevisions } from '../domain/scope';
+import { requestGeneration } from '../domain/generation';
 import { getActivity, getJob, getModule, getProject, getVerificationRun, listBuilds, listProjects, listResults } from '../domain/queries';
 import { completeUpload, createUpload, getSourceStatus, recordExecutionConsent, sealSourceRevision } from '../domain/sources';
 import { createVerificationRun } from '../domain/verification';
@@ -81,18 +83,23 @@ export const api = {
     const v = d?.version ?? 0;
     return { body: { version: v, base_revision_id: d?.base_revision_id ?? null, document: d?.document ?? null }, headers: { etag: `"v${v}"` } };
   }),
-  scopeDraftPut: route<P, { document: unknown }>({ role: 'editor', body: z.object({ document: z.unknown() }) }, async ({ ctx, req, params, body }) => {
+  scopeDraftPut: route<P, { document: unknown; base_revision_id?: string | null }>({ role: 'editor', body: z.object({ document: z.unknown(), base_revision_id: uuid.nullable().optional() }) }, async ({ ctx, req, params, body }) => {
     const m = /^"?v(\d+)"?$/.exec(req.headers.get('if-match') ?? '');
     if (!m) throw new DomainError('precondition_required', 428, 'If-Match: "v<version>" is required (use "v0" to create)');
     const parsed = ScopeDocV1.safeParse(body.document);
     if (!parsed.success) return problem(422, 'validation_failed', 'Validation failed', { fields: parsed.error.issues.map((i) => ({ path: i.path.join('.'), code: i.code })) });
-    const v = await putScopeDraft(ctx.db, ctx.orgId, params.pid, body.document, Number(m[1]), ctx.userId);
+    const v = await putScopeDraft(ctx.db, ctx.orgId, params.pid, body.document, Number(m[1]), ctx.userId, body.base_revision_id);
     return { body: { version: v, document: body.document }, headers: { etag: `"v${v}"` } };
   }),
+  scopeRevisionsList: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await listScopeRevisions(ctx, params.pid) })),
+  scopeRevisionGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getScopeRevision(ctx, params.rid) })),
   scopeRevisionCreate: route<P, { from_draft_version: number }>({ role: 'editor', idempotent: true, body: z.object({ from_draft_version: z.number().int().min(1) }) }, async ({ ctx, params, body }) => ({ status: 201, body: await createScopeRevision(ctx.db, ctx.orgId, params.pid, body.from_draft_version, ctx.userId) })),
   scopeDecision: route<P, { decision: 'approved' | 'rejected'; document_sha256: string; comment?: string }>({ role: 'editor', body: z.object({ decision: z.enum(['approved', 'rejected']), document_sha256: sha, comment: z.string().max(2000).optional() }) }, async ({ ctx, params, body }) => ({ body: await decideScope(ctx.db, ctx.orgId, await projectOf(ctx, 'scope_revisions', params.rid), params.rid, body.decision, body.document_sha256, ctx.userId!, body.comment) })),
 
-  moduleCreate: route<P, any>({ role: 'editor', idempotent: true, body: z.object({ origin: z.enum(['user_edit', 'customer_upload']), scope_revision_id: uuid, parent_id: uuid.nullable().optional(), make_current: z.boolean().optional(), files: z.array(z.object({ path: z.string(), content: z.string() })).optional(), changes: z.array(z.object({ path: z.string(), content: z.string().optional(), delete: z.boolean().optional() })).optional() }) }, async ({ ctx, params, body }) => ({ status: 201, body: await createModuleRevision(ctx, params.pid, body) })),
+  moduleCreate: route<P, any>({ role: 'editor', idempotent: true, body: z.object({ origin: z.enum(['user_edit', 'customer_upload', 'generated']), instructions: z.string().max(2000).optional(), scope_revision_id: uuid, parent_id: uuid.nullable().optional(), make_current: z.boolean().optional(), files: z.array(z.object({ path: z.string(), content: z.string() })).optional(), changes: z.array(z.object({ path: z.string(), content: z.string().optional(), delete: z.boolean().optional() })).optional() }) }, async ({ ctx, params, body }) => body.origin === 'generated'
+    // Generation is a job: the worker creates the revision and then enqueues its build.
+    ? { status: 202, body: await requestGeneration(ctx, params.pid, { scope_revision_id: body.scope_revision_id, parent_id: body.parent_id, instructions: body.instructions }) }
+    : { status: 201, body: await createModuleRevision(ctx, params.pid, body) }),
   moduleGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getModule(ctx, params.mid) })),
   moduleBuilds: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await listBuilds(ctx, params.mid) })),
   moduleFile: route<P>({ role: 'viewer' }, async ({ ctx, params, url }) => {

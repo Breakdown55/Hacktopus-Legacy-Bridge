@@ -51,6 +51,33 @@ The analysis worker mounts the uploaded file read-only in a non-root container w
 
 After building the F1 fixtures, set `LB_S2_TEST_IMAGE` to the same image ID and run `npm test -- tests/api/analysis.test.ts` to include the live stripped-ELF test. The regular suite also checks recorded REA responses, raw evidence, and scope citations.
 
+## S3: scope editing and approvals
+
+On **Select**, the scope is a structured form: the workflow and its arguments, the behaviors to modernize (each with how you know it: observed, inferred, customer requirement or intentional change), dependencies on time, randomness, environment, files and network with who is responsible after the move, assumptions, decisions, and open questions. **Cite in scope** on any finding attaches it as evidence. Inputs, outputs, required state and intentional changes are edited in the JSON view.
+
+1. **Save draft.** Saves use optimistic locking (`If-Match`). If someone else saved first the save fails with 412 and you can discard your edits to load their draft.
+2. **Create revision for review.** Seals the saved draft as an immutable, numbered revision. Citations are checked against the current source revision.
+3. **Approve or reject.** Review a revision, then approve it or reject it with a reason. Approval needs at least one behavior, a revision written for the current source revision, and the exact document digest you reviewed. Open questions do not block approval; they are recorded with it. A revision is decided once. Two simultaneous approvals give one 200 and one 409.
+4. **Change the scope later** with **Edit a copy as the draft** on any revision. The new revision records its parent. Approving it makes earlier verification runs stale (`scope_reapproved`), and Modernize reports `module_scope_outdated` until a module is built against the new scope.
+
+Re-importing the executable leaves the old approval behind: Select reports `scope_source_changed` until a scope is approved for the new source revision.
+
+The approved revision is the input to code generation (S4). `GET /api/v1/scope-revisions/{id}` returns its document, its decision, and every cited finding with artifact path and digest. `GET /api/v1/projects/{id}/scope-revisions` lists revisions with status and the current approved head.
+
+The default prototype also rejects files that are not ELF, PE or Mach-O on Import, clears Select and later progress when the executable changes, and blocks Export while no feature is selected.
+
+## S4: code generation and source edits
+
+On **Modernize**, **Generate TypeScript** asks a model to write a module from the approved scope and the findings it cites. **Repair current module** sends the current files and their build diagnostics back with optional instructions. Each result is a new numbered revision that builds automatically. You can also open any file, edit it, and **Save as new revision**, or upload your own files. A person's edit keeps the parent's list of untranslated items.
+
+Setup: set `ANTHROPIC_API_KEY` (and optionally `LB_GENERATION_MODEL`, default `claude-opus-5-5`) in the worker shell, and enable it per organization: `UPDATE organizations SET external_model_allowed = true WHERE id = '<org>';`. Without the key the worker does not claim `generate` jobs. Without the setting, the request returns 409 `external_model_not_allowed`. The scope and the cited evidence (decompiled code, strings) leave your machine when you generate.
+
+- **Output checks:** files must be `src/**` or `test/**` `.ts` files, import only `node:*` or relative paths, stay within the size limits, and include `src/index.ts`. Anything else fails the job with `generation_output_invalid` and creates no revision. The model does not write `package.json`, `tsconfig.json` or the CLI shim.
+- **Untranslated behavior:** the model lists what it could not translate and marks it with `LB-UNTRANSLATED:<id>`; it marks translated behaviors with `LB-BEHAVIOR:<id>`. The build compares markers, the list and the scope, and reports mismatches and unaddressed behaviors as warnings. Warnings never fail a build.
+- **Audit:** each generated revision records provider, model, reported model version, template version, input and output digests, token usage and a transcript blob.
+- **Limits and deviations:** the provider is worker configuration, so the request cannot choose one (the plan's `generator: {provider, model}` field is not accepted). Generate jobs get 2 attempts. Cancelling a job during a model call is not honored yet (S5). Direct callees of cited functions are not added to the evidence. A `generation_output_invalid` failure shows the validator's reason (rule names and file paths, up to 200 characters); model and program output never go into job errors. The `tsc` build is not sandboxed.
+- **Generate API:** `POST /api/v1/projects/{id}/module-revisions` with `origin: "generated"` returns 202 and a job id; the worker creates the revision.
+
 ## Private demo on two laptops
 
 The hosting laptop runs Next.js, PostgreSQL, and S3-compatible storage. The processing laptop polls the site over HTTPS, downloads one leased job, runs REA with Ghidra, and uses its signed-in Codex CLI to summarize the static evidence. It sends back findings and candidate features for the Select page. PostgreSQL and object storage stay on the hosting side. The processing laptop needs outbound access to the site and Codex.

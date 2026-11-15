@@ -36,6 +36,7 @@ export default function StagePage({ stage, Content }: { stage: number; Content: 
 
   function advance() {
     if (stage === 4) {
+      if (!project!.selected.length) { notify('Select at least one feature before exporting.'); return; }
       update(id, p => ({ ...p, complete: 5 }));
       downloadPlan(project!);
       notify('Project plan downloaded.');
@@ -63,8 +64,9 @@ export default function StagePage({ stage, Content }: { stage: number; Content: 
         project={project}
         onAdvance={advance}
         onSource={name => update(id, p => ({
+          // A new executable invalidates everything derived from the old one; notes and context stay.
           ...p, source: name, analysisJobId: undefined, demo: false,
-          ...(p.demo ? { features: [], selected: [], needs: false, complete: 0 } : {}),
+          features: [], selected: [], needs: false, complete: 0,
         }))}
         onAnalysisQueued={analysisJobId => update(id, p => ({ ...p, analysisJobId }))}
         onCandidates={names => update(id, p => ({ ...p, features: [...new Set([...p.features, ...names])] }))}

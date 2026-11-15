@@ -3,15 +3,22 @@ import { uuidv7 } from '../../server/db/ids';
 import { packTar } from '../../server/tar';
 import { putBlob } from '../../server/storage/blobs';
 import type { JobControl, WorkerEnv } from '../runtime';
+import { markerWarnings } from '../build/templates';
 
 /** Builds a module revision with tsc (never npm scripts). Each run is a new attempt; compiler errors are `failed`, infra problems `error`. */
 export async function buildHandler(env: WorkerEnv, job: Job, ctl: JobControl) {
   const moduleId = job.subject_id!;
-  const m = (await env.db.query<{ file_manifest: { path: string; sha256: string }[] }>('SELECT file_manifest FROM module_revisions WHERE id=$1 AND org_id=$2', [moduleId, job.org_id]))[0];
+  const m = (await env.db.query<{ file_manifest: { path: string; sha256: string }[]; origin: string; untranslated: { id: string }[]; scope_revision_id: string }>('SELECT file_manifest, origin, untranslated, scope_revision_id FROM module_revisions WHERE id=$1 AND org_id=$2', [moduleId, job.org_id]))[0];
   const files = await Promise.all(m.file_manifest.map(async (f) => ({ path: f.path, content: await env.store.get(job.org_id, f.sha256) })));
   await ctl.checkpoint({ phase: 'building' });
   const started = new Date();
   const out = await env.build(files);
+  // Marker checks apply to modules that use the convention (generated, or carrying markers / an untranslated list).
+  const texts = files.map((f) => ({ path: f.path, content: f.content.toString('utf8') }));
+  if (m.origin === 'generated' || m.untranslated.length || texts.some((f) => /LB-(UNTRANSLATED|BEHAVIOR):/.test(f.content))) {
+    const scope = (await env.db.query<{ document: { behaviors?: { id: string }[] } }>('SELECT document FROM scope_revisions WHERE id=$1 AND org_id=$2', [m.scope_revision_id, job.org_id]))[0];
+    out.diagnostics = [...out.diagnostics, ...markerWarnings(texts, m.untranslated, (scope?.document.behaviors ?? []).map((b) => b.id))];
+  }
   const log = await putBlob(env.db, env.store, job.org_id, Buffer.from(out.log), 'text/plain');
   let outputSha: string | null = null;
   if (out.status === 'succeeded') outputSha = (await putBlob(env.db, env.store, job.org_id, packTar(out.files), 'application/x-tar')).sha256;

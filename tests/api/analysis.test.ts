@@ -175,6 +175,11 @@ it('publishes pageable finding evidence, scoped citations, and deep pseudocode t
     { path: 'dependencies[0].evidence[0]', code: 'unknown_finding' },
   ] });
   expect(await ok(draft(fid, 0))).toMatchObject({ version: 1, document: { behaviors: [{ evidence: [fid] }] } });
+  // S3: a sealed revision is fetched with its cited findings hydrated; this is what code generation (S4) will consume.
+  const sealed = await call(api.scopeRevisionCreate, { method: 'POST', params: { pid }, body: { from_draft_version: 1 } });
+  expect(sealed.status).toBe(201);
+  const fetched = await call(api.scopeRevisionGet, { params: { rid: sealed.json.id } });
+  expect(fetched.json).toMatchObject({ status: 'pending', source_is_current: true, evidence: [{ id: fid, provider_evidence_id: expect.stringMatching(/^ev_[0-9a-f]{64}$/), artifact_sha256: digest }] });
   await sealExecutable(buildElf({ extraStrings: ['updated revision'] }), pid);
   const stale = await call(api.scopeRevisionCreate, { method: 'POST', params: { pid }, body: { from_draft_version: 1 } });
   expect(stale).toMatchObject({ status: 422, json: { code: 'unknown_finding' } });

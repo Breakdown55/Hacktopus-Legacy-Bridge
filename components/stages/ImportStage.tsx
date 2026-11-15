@@ -2,7 +2,8 @@
 
 import Action from './Action';
 import type { StageProps } from '../StagePage';
-import { useState, type DragEvent } from 'react';
+import { useRef, useState, type DragEvent } from 'react';
+import { notExecutableMessage, readExecutableKind } from '@/lib/executable';
 import ContextPanel from '../ContextPanel';
 import Icon from '../Icon';
 import AnalysisPanel from '../AnalysisPanel';
@@ -11,7 +12,16 @@ export default function ImportStage(props: StageProps) {
   const { project, onAdvance, notify } = props;
   const [file, setFile] = useState<File | null>(null);
   const [selection, setSelection] = useState(0);
-  function selectFile(file: File) {
+  const latest = useRef(0);
+  async function selectFile(file: File, input?: HTMLInputElement) {
+    const request = ++latest.current;
+    const kind = await readExecutableKind(file).catch(() => null);
+    if (request !== latest.current) return;
+    if (!kind) {
+      if (input) input.value = '';
+      notify(notExecutableMessage);
+      return;
+    }
     setFile(file);
     setSelection(value => value + 1);
     props.onSource(file.name);
@@ -23,7 +33,7 @@ export default function ImportStage(props: StageProps) {
     event.preventDefault();
     if (type === 'dragleave' && event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     setDropOver(type === 'dragover');
-    if (type === 'drop') selectFile(event.dataTransfer.files[0]);
+    if (type === 'drop') void selectFile(event.dataTransfer.files[0]);
   }
 
   return (
@@ -43,7 +53,7 @@ export default function ImportStage(props: StageProps) {
             type="file"
             id="source-file"
             aria-label="Upload legacy executable"
-            onChange={e => { const file = e.target.files?.[0]; if (file) selectFile(file); }}
+            onChange={e => { const file = e.target.files?.[0]; if (file) void selectFile(file, e.target); }}
           />
         </label>
         <ContextPanel

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { notExecutableMessage, readExecutableKind } from '@/lib/executable';
 import { post, s1, sendArtifact, waitJob } from '@/lib/s1-client';
 import { useS1Project } from './ProjectShell';
 import { Continue, useResource, type Operation, type SourceStatus } from './StageFrame';
@@ -13,9 +14,22 @@ export default function Import({ op }: { op: Operation }) {
   const [primary, setPrimary] = useState<File>();
   const [support, setSupport] = useState<File[]>([]);
   const [notes, setNotes] = useState('');
+  const [fileError, setFileError] = useState('');
   const [authorized, setAuthorized] = useState(false);
   const { data, error } = useResource<SourceStatus>(source ? '/source-revisions/' + source : null, true);
 
+  async function choosePrimary(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    setFileError('');
+    setPrimary(undefined);
+    if (!file) return;
+    if (!(await readExecutableKind(file).catch(() => null))) {
+      input.value = '';
+      setFileError(notExecutableMessage);
+      return;
+    }
+    setPrimary(file);
+  }
   function upload() {
     if (!primary) return;
     void op.run('Uploading and inspecting the executable…', async signal => {
@@ -50,7 +64,8 @@ export default function Import({ op }: { op: Operation }) {
   return <>
     <div className="panels">
       <section className="panel s1-fields">
-        <label className="field">Legacy executable<input type="file" disabled={op.busy} onChange={e => setPrimary(e.target.files?.[0])} /></label>
+        <label className="field">Legacy executable<input type="file" disabled={op.busy} onChange={e => void choosePrimary(e.target)} /></label>
+        {fileError && <p role="alert">{fileError}</p>}
         <label className="field">Supporting files<input type="file" multiple disabled={op.busy} onChange={e => setSupport(Array.from(e.target.files ?? []))} /></label>
         <label className="field">Project context<textarea value={notes} maxLength={5000} onChange={e => setNotes(e.target.value)} /></label>
         <button className="primary" type="button" onClick={upload} disabled={!primary || op.busy}>Upload and inspect</button>

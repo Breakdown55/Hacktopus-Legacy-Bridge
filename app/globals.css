@@ -85,3 +85,12 @@
 .s2-code{margin:0;white-space:pre;overflow-wrap:normal}
 .s2-incoming{margin-top:10px}
 @media(max-width:580px){.s2-provenance{grid-template-columns:minmax(0,1fr);gap:2px}.s2-provenance dd{margin-bottom:6px}.s1-table :is(th,td){overflow-wrap:anywhere}}
+.s3-group{display:grid;gap:10px;min-width:0;margin:0;padding:12px 14px;border:1px solid var(--border);border-radius:8px}
+.s3-group legend{padding:0 6px;color:var(--silver)}
+.s3-item{display:grid;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.s3-item:last-of-type{border-bottom:0}
+.s3-group select{width:100%;min-width:0;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 11px}
+.s3-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.s3-chips li{display:flex;align-items:center;gap:6px}
+.s3-revisions{display:grid;gap:14px;margin:0;padding-left:22px}
+.s3-review{margin-top:10px}
