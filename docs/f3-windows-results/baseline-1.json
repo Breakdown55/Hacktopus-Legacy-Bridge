@@ -1,0 +1,227 @@
+{
+  "variant": "baseline",
+  "fixture": "intcalc.stripped",
+  "codex": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1111.2228.0_x64__2p2nqsd0c76g0\\app\\resources\\codex.exe",
+  "generated_at": "2026-11-15T03:49:32.300Z",
+  "runtime": "runc",
+  "tsc_sandbox": false,
+  "expected_cases": 16,
+  "attempts": [
+    {
+      "attempt": 1,
+      "job": {
+        "status": "succeeded",
+        "error": null
+      },
+      "generation_ms": 20367,
+      "build": "succeeded",
+      "build_ms": 436,
+      "diagnostics": []
+    }
+  ],
+  "acceptance": "passed",
+  "phase": "complete",
+  "artifact_sha256": "151177b2046c162f151912a9d83103fe84eaa51cbfca757af8ea22e7b0bf3d74",
+  "revision": 1,
+  "generator": {
+    "model": "cli-default",
+    "notes": "Decimal arguments accept an optional sign and leading zeros. Output uses exact arithmetic to round thirds to two decimal places.",
+    "usage": {
+      "inputTokens": 14831,
+      "outputTokens": 744
+    },
+    "job_id": "01a1dd53-7cd1-7734-9011-9000d3da1b46",
+    "params": {
+      "repair": false,
+      "evidence_items": 0
+    },
+    "provider": "codex",
+    "input_digest": "651d06fc045c1a91006d0102d9cd3192504483bb979c9edc1369fd17b99c7c70",
+    "model_version": null,
+    "output_digest": "a62745c5d82a2aabc7920dc45bcf50766e589e116b9e178dbb45b66552a4d788",
+    "transcript_blob": "92f2608a552b40385657ab4397b582bae3dad0a50842ad97523d2e3916bf7dae",
+    "template_version": "ts-cli-v1"
+  },
+  "untranslated": [
+    {
+      "id": "overflow",
+      "file": "src/index.ts",
+      "line": 36,
+      "reason": "Native intermediate addition width and overflow behavior are unspecified. The implementation uses exact mathematical addition for all accepted inputs. Legacy equivalence for sums outside the signed 32-bit range remains unverified.",
+      "evidence": [
+        "Both arguments must be signed 32-bit integers.",
+        "The approved behavior specifies addition and division by 3, but supplies no implementation or overflow observations."
+      ],
+      "behaviorId": "sum-scale"
+    }
+  ],
+  "build_status": "succeeded",
+  "matches": 12,
+  "results": [
+    {
+      "name": "argument out of range",
+      "outcome": "match"
+    },
+    {
+      "name": "large positive overflow",
+      "outcome": "difference"
+    },
+    {
+      "name": "leading space",
+      "outcome": "difference"
+    },
+    {
+      "name": "max int, no overflow",
+      "outcome": "match"
+    },
+    {
+      "name": "min int, no overflow",
+      "outcome": "match"
+    },
+    {
+      "name": "negative",
+      "outcome": "match"
+    },
+    {
+      "name": "negative overflow",
+      "outcome": "difference"
+    },
+    {
+      "name": "not a number",
+      "outcome": "match"
+    },
+    {
+      "name": "plus sign",
+      "outcome": "match"
+    },
+    {
+      "name": "positive overflow",
+      "outcome": "difference"
+    },
+    {
+      "name": "rounding up",
+      "outcome": "match"
+    },
+    {
+      "name": "simple",
+      "outcome": "match"
+    },
+    {
+      "name": "too few args",
+      "outcome": "match"
+    },
+    {
+      "name": "too many args",
+      "outcome": "match"
+    },
+    {
+      "name": "trailing junk",
+      "outcome": "match"
+    },
+    {
+      "name": "zero",
+      "outcome": "match"
+    }
+  ],
+  "non_match_differences": [
+    {
+      "name": "large positive overflow",
+      "outcome": "difference",
+      "differences": [
+        {
+          "kind": "content",
+          "channel": "stdout",
+          "actual_sha256": "08ee8664a63e2de6ae669d2dbb0d50091094872a7e1f5fd7613f0916c893ac2c",
+          "actual_excerpt": "1333333333.33\n",
+          "expected_sha256": "b7474cd65a6abaf3d93c8179039ae5cf3441fca1b47f85a71429b0de142805ae",
+          "expected_excerpt": "-98322432.00\n",
+          "first_difference": {
+            "byte": 0,
+            "line": 1,
+            "column": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "leading space",
+      "outcome": "difference",
+      "differences": [
+        {
+          "kind": "value",
+          "actual": 2,
+          "channel": "exit",
+          "expected": 0
+        },
+        {
+          "kind": "content",
+          "channel": "stdout",
+          "actual_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_excerpt": "",
+          "expected_sha256": "836d5451a22a91a7d67e811323f1fae39cb89beb8a439b79131ae9f522d4b247",
+          "expected_excerpt": "2.33\n",
+          "first_difference": {
+            "byte": 0,
+            "line": 1,
+            "column": 1
+          }
+        },
+        {
+          "kind": "content",
+          "channel": "stderr",
+          "actual_sha256": "95fd46151b90e676c0a684757707ba4d679af313be3c3befb36699f2211479bf",
+          "actual_excerpt": "usage: intcalc LEFT RIGH",
+          "expected_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "expected_excerpt": "",
+          "first_difference": {
+            "byte": 0,
+            "line": 1,
+            "column": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "negative overflow",
+      "outcome": "difference",
+      "differences": [
+        {
+          "kind": "content",
+          "channel": "stdout",
+          "actual_sha256": "8db56dae555cd947c3dc2054080ea5289f80b164697c40cae7ed2715e853c1f6",
+          "actual_excerpt": "-715827883.00\n",
+          "expected_sha256": "95900e1fa0f58cd8876820556f647963d929ecb853042064066be7406342b782",
+          "expected_excerpt": "715827882.33\n",
+          "first_difference": {
+            "byte": 0,
+            "line": 1,
+            "column": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "positive overflow",
+      "outcome": "difference",
+      "differences": [
+        {
+          "kind": "content",
+          "channel": "stdout",
+          "actual_sha256": "a2b759300a9c68d1000e37b5f976856cb0117d36e68130768b8ad94a42640cab",
+          "actual_excerpt": "715827882.67\n",
+          "expected_sha256": "258707478e3ff2ed51c42d9f83eff5f64c4a677fda06b3c5cccb9ad39a623745",
+          "expected_excerpt": "-715827882.67\n",
+          "first_difference": {
+            "byte": 0,
+            "line": 1,
+            "column": 1
+          }
+        }
+      ]
+    }
+  ],
+  "scope_gaps": [
+    "leading space"
+  ],
+  "wall_ms": 59919
+}

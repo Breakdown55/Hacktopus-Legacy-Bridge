@@ -2,7 +2,8 @@
  * F3 / S4 acceptance (plan §10.1 F3, §10.2 S4): LIVE generation for the STRIPPED `intcalc` fixture with the signed-in Codex CLI.
  * Opt in with LB_TEST_LIVE_CODEX=1 (it sends the scope and evidence to Codex). Needs Docker and `make -C fixtures`.
  * Acceptance: the generated module builds, and either matches the original on every case or lists the overflow behavior it could not translate.
- * Substitutes: PGlite, FsBlobStore, Docker runc (not gVisor), unsandboxed tsc build, and NO decompiler: no REA image, so evidence is built-in ELF inspection only.
+ * Set LB_F3_VARIANT=evidence and LB_ANALYSIS_IMAGE to use real REA/Ghidra evidence. The default baseline cites no findings.
+ * Uses PGlite, FsBlobStore, Docker runc (not gVisor), and unsandboxed host tsc.
  * Writes a JSON report to LB_F3_REPORT (default: <tmp>/intcalc-f3-report.json).
  */
 import { execFileSync } from 'node:child_process';
@@ -10,8 +11,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testDb } from '../helpers/testdb';
+import { createMeasuredReaRunner } from '../helpers/f3-docker-metrics';
+import { gatherIntcalcEvidence } from '../helpers/f3-intcalc-evidence';
 import type { Db } from '../../server/db/db';
 import { uuidv7 } from '../../server/db/ids';
 import { FsBlobStore } from '../../server/storage/fs';
@@ -30,12 +33,12 @@ import { CodexGenerator } from '../../workers/generation/codex';
 import type { WorkerEnv } from '../../workers/runtime';
 
 const root = join(__dirname, '../..');
-const docker = [process.env.DOCKER_BIN, `${process.env.HOME}/.docker/bin/docker`, '/usr/local/bin/docker', 'docker'].filter(Boolean).find((d) => { try { execFileSync(d!, ['info'], { stdio: 'ignore', timeout: 15000 }); return true; } catch { return false; } });
 const fixture = join(root, 'fixtures/bin/intcalc.stripped');
-const codexBin = process.env.LB_CODEX_BIN || ['/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex', 'codex'].find((p) => p === 'codex' || existsSync(p))!;
 const live = process.env.LB_TEST_LIVE_CODEX === '1';
-const skip = !live || !docker || !existsSync(fixture);
-if (!skip) process.env.PATH = `${dirname(docker!)}:${process.env.PATH}`;
+const docker = live ? [process.env.DOCKER_BIN, `${process.env.HOME}/.docker/bin/docker`, '/usr/local/bin/docker', 'docker'].filter(Boolean)
+  .find((d) => { try { execFileSync(d!, ['info'], { stdio: 'ignore', timeout: 15000 }); return true; } catch { return false; } }) : undefined;
+const codexBin = process.env.LB_CODEX_BIN || ['/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex', process.platform === 'win32' ? 'codex.exe' : 'codex'].find((p) => !p.includes('/') || existsSync(p))!;
+const variant = process.env.LB_F3_VARIANT || 'baseline';
 const IMAGE = 'debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc';
 const reportPath = process.env.LB_F3_REPORT || join(tmpdir(), 'intcalc-f3-report.json');
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
@@ -60,10 +63,23 @@ const CASES: { name: string; argv: string[]; overflow?: boolean }[] = [
   { name: 'too many args', argv: ['1', '2', '3'] },
 ];
 
-describe.skipIf(skip)('F3: stripped intcalc through Codex generation (live)', () => {
+describe.skipIf(!live)(`F3: stripped intcalc through Codex generation (${variant}, live)`, () => {
   let db: Db, c: Ctx, env: WorkerEnv, project: string, origEnv: string, replEnv: string, source: string, scopeId: string;
   const org = uuidv7(), user = uuidv7();
-  const report: Record<string, unknown> = { fixture: 'intcalc.stripped', codex: codexBin, generated_at: new Date().toISOString(), attempts: [] };
+  const report: Record<string, unknown> = {
+    variant, fixture: 'intcalc.stripped', codex: codexBin, generated_at: new Date().toISOString(),
+    runtime: 'runc', tsc_sandbox: false, expected_cases: CASES.length, attempts: [],
+    acceptance: 'failed', phase: 'setup',
+  };
+  const started = performance.now();
+  let artifactSha256: string, citedPseudocode: string | undefined;
+
+  afterAll(() => {
+    report.wall_ms = Math.round(performance.now() - started);
+    mkdirSync(dirname(reportPath), { recursive: true });
+    writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
+    console.log(`[f3] report: ${reportPath}`);
+  });
 
   const upload = async (name: string, bytes: Buffer) => {
     const u = await createUpload(c, project, { filename: name, size: bytes.length, sha256: sha(bytes) });
@@ -73,6 +89,13 @@ describe.skipIf(skip)('F3: stripped intcalc through Codex generation (live)', ()
   };
 
   beforeAll(async () => {
+    expect(['baseline', 'evidence']).toContain(variant);
+    expect(docker, 'live F3 requires a reachable Docker engine').toBeTruthy();
+    expect(existsSync(fixture), 'build fixtures before running live F3').toBe(true);
+    const image = process.env.LB_ANALYSIS_IMAGE;
+    if (variant === 'evidence') expect(image, 'evidence variant needs a pinned analysis image').toMatch(/^sha256:[a-f0-9]{64}$/);
+    const measured = variant === 'evidence' && image ? createMeasuredReaRunner({ image, docker }) : undefined;
+    if (measured) report.analysis = { operations: measured.measurements };
     for (const image of [IMAGE, NODE_IMAGE]) {
       try { execFileSync(docker!, ['image', 'inspect', image], { stdio: 'ignore', timeout: 15_000 }); }
       catch { execFileSync(docker!, ['pull', image], { stdio: 'inherit', timeout: 240_000 }); }
@@ -87,13 +110,18 @@ describe.skipIf(skip)('F3: stripped intcalc through Codex generation (live)', ()
     replEnv = await ensureEnvironment(db, { name: 'replacement-node22', version: 1, role: 'replacement', image_digest: NODE_IMAGE, arch: process.arch, controls: CONTROLS });
     env = {
       db, store: c.store, workRoot: mkdtempSync(join(tmpdir(), 'f3-work-')), workerId: 'w-f3',
-      original: new DockerOriginalRunner({ docker }), replacement: new DockerReplacementRunner(NODE_IMAGE),
+      original: new DockerOriginalRunner({ docker }), replacement: new DockerReplacementRunner(NODE_IMAGE, { docker }),
+      rea: measured?.runner,
       build: (files) => localBuild(files, { repoRoot: root }), generator: new CodexGenerator({ binary: codexBin, model: process.env.LB_GENERATION_MODEL || undefined }),
     };
   }, 300_000);
 
   it('imports the stripped binary, captures references from the original, and approves a black-box scope', async () => {
-    const bin = await upload('intcalc', readFileSync(fixture));
+    report.phase = 'import_and_capture';
+    const bytes = readFileSync(fixture);
+    artifactSha256 = sha(bytes);
+    report.artifact_sha256 = artifactSha256;
+    const bin = await upload('intcalc', bytes);
     source = (await sealSourceRevision(c, project, { artifacts: [{ upload_id: bin, path: 'bin/intcalc', role: 'primary_executable' }], notes: 'stripped fixture', objectives: 'same output' })).id;
     await drain(env, ['inspect']);
     await recordExecutionConsent(c, source, 'I am authorized to run this executable in an isolated sandbox');
@@ -108,13 +136,21 @@ describe.skipIf(skip)('F3: stripped intcalc through Codex generation (live)', ()
     expect(refs).toHaveLength(CASES.length);
     expect(refs.every((r) => r.provenance === 'captured_original' && r.deterministic)).toBe(true);
 
+    report.phase = 'approving_scope';
+    let citations: Awaited<ReturnType<typeof gatherIntcalcEvidence>> | undefined;
+    if (variant === 'evidence') {
+      report.phase = 'collecting_evidence';
+      citations = await gatherIntcalcEvidence(c, env, source, artifactSha256, report.analysis as Record<string, unknown>);
+      citedPseudocode = citations.pseudocodeId;
+      report.phase = 'approving_scope';
+    }
     // A scope an analyst could write from running the program. It does not mention overflow: the generator has to notice or flag that.
     await putScopeDraft(c.db, org, project, {
       workflow: { name: 'Integer calculator', invocation: { argv_template: ['{left}', '{right}'], stdin: 'none' } },
       interface: { language: 'typescript', export: 'run' },
       behaviors: [
-        { id: 'sum-scale', statement: 'Takes two integer arguments LEFT and RIGHT, adds them, divides the sum by 3 and prints the result with exactly two decimal places and a newline on stdout. Exit code 0.', basis: 'observed' },
-        { id: 'bad-args', statement: 'With the wrong number of arguments, or an argument that is not a whole decimal integer in the signed 32-bit range, prints "usage: intcalc LEFT RIGHT" and a newline to stderr, prints nothing to stdout and exits with code 2.', basis: 'observed' },
+        { id: 'sum-scale', statement: 'Takes two integer arguments LEFT and RIGHT, adds them, divides the sum by 3 and prints the result with exactly two decimal places and a newline on stdout. Exit code 0.', basis: 'observed', ...(citations ? { evidence: citations.sumScale } : {}) },
+        { id: 'bad-args', statement: 'With the wrong number of arguments, or an argument that is not a whole decimal integer in the signed 32-bit range, prints "usage: intcalc LEFT RIGHT" and a newline to stderr, prints nothing to stdout and exits with code 2.', basis: 'observed', ...(citations ? { evidence: citations.badArgs } : {}) },
       ],
       assumptions: [],
       open_questions: [],
@@ -123,37 +159,52 @@ describe.skipIf(skip)('F3: stripped intcalc through Codex generation (live)', ()
     await decideScope(c.db, org, project, scope.id, 'approved', scope.document_sha256, user);
     scopeId = scope.id;
     expect((await getHeads(db, org, project)).approved_scope_revision_id).toBe(scopeId);
-  }, 300_000);
+  }, 20 * 60_000);
 
   it('Codex generates a module that builds (at most one repair) and either matches or lists the overflow it could not translate', async () => {
+    expect(scopeId, 'the previous test must import, collect evidence if requested, and approve scope').toBeTruthy();
+    report.phase = 'generation';
     let moduleId = '', parent: string | undefined;
     for (let attempt = 1; attempt <= 2; attempt++) {
+      const generationStart = performance.now();
       await requestGeneration(c, project, { scope_revision_id: scopeId, parent_id: parent, instructions: attempt === 2 ? 'Fix the build errors reported in the diagnostics.' : undefined });
       await drain(env, ['generate']);
       const job = (await db.query<{ status: string; error: unknown }>("SELECT status, error FROM jobs WHERE kind='generate' ORDER BY created_at DESC, id DESC LIMIT 1"))[0];
-      (report.attempts as unknown[]).push({ attempt, job });
+      const receipt: Record<string, unknown> = { attempt, job, generation_ms: Math.round(performance.now() - generationStart) };
+      (report.attempts as unknown[]).push(receipt);
       expect(job.status, JSON.stringify(job)).toBe('succeeded');
       moduleId = (await getHeads(db, org, project)).current_module_revision_id!;
+      const buildStart = performance.now();
       await drain(env, ['build']);
       const b = (await db.query<{ status: string; diagnostics: unknown }>('SELECT status, diagnostics FROM build_results WHERE module_revision_id=$1 ORDER BY attempt DESC LIMIT 1', [moduleId]))[0];
-      (report.attempts as Record<string, unknown>[])[attempt - 1].build = b.status;
+      Object.assign(receipt, { build: b.status, build_ms: Math.round(performance.now() - buildStart), diagnostics: b.diagnostics });
       if (b.status === 'succeeded') break;
       parent = moduleId;
     }
-    const m = (await db.query<{ id: string; number: number; untranslated: { id: string; behaviorId?: string; reason: string }[]; generator: { provider: string; model: string; usage: unknown } }>('SELECT id, number, untranslated, generator FROM module_revisions WHERE id=$1', [moduleId]))[0];
+    const m = (await db.query<{ id: string; number: number; untranslated: unknown[]; generator: { params: { evidence_items: number }; transcript_blob: string } }>('SELECT id, number, untranslated, generator FROM module_revisions WHERE id=$1', [moduleId]))[0];
     const built = (await db.query<{ status: string }>('SELECT status FROM build_results WHERE module_revision_id=$1 ORDER BY attempt DESC LIMIT 1', [moduleId]))[0];
+    Object.assign(report, { revision: m.number, generator: m.generator, untranslated: m.untranslated, build_status: built.status });
     expect(built.status).toBe('succeeded');
+    if (variant === 'evidence') {
+      expect(m.generator.params.evidence_items).toBeGreaterThan(0);
+      const trace = JSON.parse((await c.store.get(org, m.generator.transcript_blob)).toString('utf8'));
+      const selected = trace.request.evidence.find((item: { findingId: string }) => item.findingId === citedPseudocode);
+      expect(selected).toMatchObject({ kind: 'pseudocode', artifactSha256 });
+      expect(selected.excerpt.trim().length).toBeGreaterThan(0);
+    } else {
+      expect(m.generator.params.evidence_items).toBe(0);
+    }
 
+    report.phase = 'verification';
     await createVerificationRun(c, project, { environment_id: replEnv });
     await drain(env, ['verify']);
     const rows = await db.query<{ name: string; outcome: string; differences: unknown }>(
       `SELECT tc.name, vr.outcome, vr.differences FROM verification_results vr JOIN test_cases tc ON tc.id = vr.test_case_id ORDER BY tc.name`);
     const overflowNames = new Set(CASES.filter((k) => k.overflow).map((k) => k.name));
     const nonMatch = rows.filter((r) => r.outcome !== 'match');
-    const summary = { revision: m.number, generator: m.generator, untranslated: m.untranslated, results: rows.map((r) => ({ name: r.name, outcome: r.outcome })), non_match_differences: nonMatch };
+    const summary = { matches: rows.length - nonMatch.length, results: rows.map((r) => ({ name: r.name, outcome: r.outcome })), non_match_differences: nonMatch };
     Object.assign(report, summary);
-    writeFileSync(reportPath, JSON.stringify(report, null, 2));
-    console.log(`[f3] report: ${reportPath}\n[f3] outcomes: ${rows.map((r) => `${r.name}=${r.outcome}`).join(', ')}\n[f3] untranslated: ${JSON.stringify(m.untranslated)}`);
+    console.log(`[f3] outcomes: ${rows.map((r) => `${r.name}=${r.outcome}`).join(', ')}\n[f3] untranslated: ${JSON.stringify(m.untranslated)}`);
 
     expect(rows).toHaveLength(CASES.length);
     expect(rows.filter((r) => r.outcome === 'couldnt_run' || r.outcome === 'needs_reference')).toEqual([]);
@@ -161,11 +212,12 @@ describe.skipIf(skip)('F3: stripped intcalc through Codex generation (live)', ()
     // Non-overflow differences (e.g. strtoll accepting leading whitespace) are scope gaps a black-box scope cannot reveal: reported, not blocking.
     const gaps = nonMatch.filter((r) => !overflowNames.has(r.name)).map((r) => r.name);
     report.scope_gaps = gaps;
-    writeFileSync(reportPath, JSON.stringify(report, null, 2));
     console.log(`[f3] non-overflow differences (scope gaps): ${JSON.stringify(gaps)}`);
     if (nonMatch.some((r) => overflowNames.has(r.name))) {
       expect(m.untranslated.length, 'overflow differs but nothing is listed as untranslated').toBeGreaterThan(0);
       expect(JSON.stringify(m.untranslated), 'untranslated list does not mention overflow/wraparound').toMatch(/overflow|wrap|32-bit|int32|modulo|two'?s/i);
     }
+    report.acceptance = 'passed';
+    report.phase = 'complete';
   }, 20 * 60_000);
 });

@@ -1,0 +1,129 @@
+{
+  "variant": "evidence",
+  "fixture": "intcalc.stripped",
+  "codex": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1111.2228.0_x64__2p2nqsd0c76g0\\app\\resources\\codex.exe",
+  "generated_at": "2026-11-15T04:02:00.096Z",
+  "runtime": "runc",
+  "tsc_sandbox": false,
+  "expected_cases": 16,
+  "attempts": [],
+  "acceptance": "failed",
+  "phase": "collecting_evidence",
+  "analysis": {
+    "operations": [
+      {
+        "operation": "procedures",
+        "address": null,
+        "wall_ms": 22209,
+        "peak_bytes": 862617600,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "strings",
+        "address": null,
+        "wall_ms": 21503,
+        "peak_bytes": 773595136,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "xrefs",
+        "address": "ram:0x401070",
+        "wall_ms": 23408,
+        "peak_bytes": 910315520,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "xrefs",
+        "address": "ram:0x401070",
+        "wall_ms": 21450,
+        "peak_bytes": 750596096,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "decompile",
+        "address": "ram:0x401070",
+        "wall_ms": 5303179,
+        "peak_bytes": null,
+        "peak_source": null,
+        "exit_code": "ABORT_ERR"
+      }
+    ],
+    "deep_runs": [
+      {
+        "role": "program entry",
+        "function": "entry",
+        "address": "0x401070",
+        "finding_id": "01a1dd5f-e826-7622-8655-afceb50c28fc"
+      }
+    ],
+    "index": {
+      "wall_ms": 67603,
+      "run": {
+        "id": "01a1dd5e-e067-7422-98f7-87f09012d393",
+        "job_id": "01a1dd5e-e067-7422-98f7-87f09012d393",
+        "kind": "index",
+        "status": "succeeded",
+        "error": null,
+        "params": {},
+        "created_at": "2026-11-15T04:02:24.999Z",
+        "outcome": "complete",
+        "coverage": {
+          "scope": "inventory",
+          "xrefs": 4,
+          "thunks": 11,
+          "imports": 6,
+          "strings": 41,
+          "functions": 10,
+          "operations": [
+            {
+              "kind": "procedures",
+              "rows": 27,
+              "status": "complete",
+              "indexedRows": 27
+            },
+            {
+              "kind": "strings",
+              "rows": 41,
+              "status": "complete",
+              "indexedRows": 41
+            },
+            {
+              "kind": "xrefs",
+              "rows": 4,
+              "status": "complete",
+              "address": "0x401070",
+              "indexedRows": 4
+            }
+          ],
+          "pseudocode": 0,
+          "completeness": "provider_inventory_only"
+        },
+        "limitations": [
+          "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+          "Ghidra Program checkpoint mode is disabled: closing discards metadata edits; original executable bytes are unchanged. For stock ELF/PE/Mach-O on Linux/macOS, set REA_GHIDRA_CHECKPOINT_DIR to a private absolute directory before starting REA (restart MCP after changing its startup environment).",
+          "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+          "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+          "Regex mode uses Java Pattern semantics. Matcher or compiler stack exhaustion returns a resource constraint without closing the session; literal mode avoids regex recursion and returns complete matching values.",
+          "This session uses Ghidra 12.1. The bridge is verified against 12.1.4; other 12.x (>=12.1) builds are accepted and the observed version is reported.",
+          "Only Ghidra-defined string Data is observed; packed or undefined string bytes may be absent. Completeness applies to that inventory, and an empty search does not establish that text is absent from the artifact. If an address is known, use read_bytes and xrefs to inspect bytes and references.",
+          "The direct address list projects exact Ghidra references to one address but does not expose their kinds; procedure_references and analyze_function preserve available kind metadata.",
+          "Synthetic Ghidra entry-point references without actionable memory sources are omitted.",
+          "Inventory covers Ghidra-discovered entries and defined strings only. Total recoverable coverage is unknown.",
+          "Cross-references are incoming references to selected addresses. Reference kinds and a complete call graph are unavailable."
+        ],
+        "unknowns": [],
+        "provider_version": {
+          "rea": "6.9.0",
+          "image": "sha256:4ab01cd2cfa8b23122df27ff66c61ee5df9561107bdae499aa8582d57547f971",
+          "ghidra": "12.1"
+        }
+      }
+    }
+  },
+  "artifact_sha256": "151177b2046c162f151912a9d83103fe84eaa51cbfca757af8ea22e7b0bf3d74",
+  "wall_ms": 5418081
+}

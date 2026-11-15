@@ -1,0 +1,465 @@
+{
+  "variant": "evidence",
+  "fixture": "intcalc.stripped",
+  "codex": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1111.2228.0_x64__2p2nqsd0c76g0\\app\\resources\\codex.exe",
+  "generated_at": "2026-11-15T03:57:31.010Z",
+  "runtime": "runc",
+  "tsc_sandbox": false,
+  "expected_cases": 16,
+  "attempts": [
+    {
+      "attempt": 1,
+      "job": {
+        "status": "succeeded",
+        "error": null
+      },
+      "generation_ms": 17840,
+      "build": "succeeded",
+      "build_ms": 695,
+      "diagnostics": []
+    }
+  ],
+  "acceptance": "passed",
+  "phase": "complete",
+  "analysis": {
+    "operations": [
+      {
+        "operation": "procedures",
+        "address": null,
+        "wall_ms": 23667,
+        "peak_bytes": 785428480,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "strings",
+        "address": null,
+        "wall_ms": 21485,
+        "peak_bytes": 849678336,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "xrefs",
+        "address": "ram:0x401070",
+        "wall_ms": 21087,
+        "peak_bytes": 740433920,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "xrefs",
+        "address": "ram:0x401070",
+        "wall_ms": 21517,
+        "peak_bytes": 758865920,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "decompile",
+        "address": "ram:0x401070",
+        "wall_ms": 22683,
+        "peak_bytes": 751677440,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "xrefs",
+        "address": "ram:0x4011c6",
+        "wall_ms": 22023,
+        "peak_bytes": 761188352,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "decompile",
+        "address": "ram:0x4011c6",
+        "wall_ms": 23465,
+        "peak_bytes": 777801728,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "xrefs",
+        "address": "ram:0x401156",
+        "wall_ms": 24008,
+        "peak_bytes": 838770688,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      },
+      {
+        "operation": "decompile",
+        "address": "ram:0x401156",
+        "wall_ms": 23332,
+        "peak_bytes": 886517760,
+        "peak_source": "cgroup-v2",
+        "exit_code": 0
+      }
+    ],
+    "deep_runs": [
+      {
+        "role": "program entry",
+        "function": "entry",
+        "address": "0x401070",
+        "finding_id": "01a1dd5b-cfc8-733c-b595-cff352c7d349",
+        "wall_ms": 44543,
+        "run": {
+          "id": "01a1dd5b-cfed-76ba-8a2b-fd8dcfc0cd87",
+          "job_id": "01a1dd5b-cfed-76ba-8a2b-fd8dcfc0cd87",
+          "kind": "deep_function",
+          "status": "succeeded",
+          "error": null,
+          "params": {
+            "address": "0x401070"
+          },
+          "created_at": "2026-11-15T03:59:04.173Z",
+          "outcome": "complete",
+          "coverage": {
+            "scope": "function",
+            "xrefs": 4,
+            "thunks": 0,
+            "imports": 0,
+            "strings": 0,
+            "functions": 0,
+            "operations": [
+              {
+                "kind": "xrefs",
+                "rows": 4,
+                "status": "complete",
+                "address": "0x401070",
+                "indexedRows": 4
+              },
+              {
+                "kind": "decompile",
+                "rows": 1,
+                "status": "complete",
+                "address": "0x401070",
+                "indexedRows": 1
+              }
+            ],
+            "pseudocode": 1,
+            "completeness": "selected_function_only"
+          },
+          "limitations": [
+            "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+            "Ghidra Program checkpoint mode is disabled: closing discards metadata edits; original executable bytes are unchanged. For stock ELF/PE/Mach-O on Linux/macOS, set REA_GHIDRA_CHECKPOINT_DIR to a private absolute directory before starting REA (restart MCP after changing its startup environment).",
+            "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+            "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+            "The direct address list projects exact Ghidra references to one address but does not expose their kinds; procedure_references and analyze_function preserve available kind metadata.",
+            "Synthetic Ghidra entry-point references without actionable memory sources are omitted.",
+            "This session uses Ghidra 12.1. The bridge is verified against 12.1.4; other 12.x (>=12.1) builds are accepted and the observed version is reported.",
+            "Pseudocode is Ghidra decompiler output, not original source and not text-equivalent to Hopper output.",
+            "External functions and functions without an analyzable body return null; other decompiler failures remain explicit.",
+            "Cross-references are incoming references to selected addresses. Reference kinds and a complete call graph are unavailable."
+          ],
+          "unknowns": [],
+          "provider_version": {
+            "rea": "6.9.0",
+            "image": "sha256:4ab01cd2cfa8b23122df27ff66c61ee5df9561107bdae499aa8582d57547f971",
+            "ghidra": "12.1"
+          }
+        },
+        "pseudocode": "\nvoid processEntry entry(undefined8 param_1,undefined8 param_2)\n\n{\n  undefined1 auStack_8 [8];\n  \n  __libc_start_main(FUN_004011c6,param_2,&stack0x00000008,0,0,param_1,auStack_8);\n  do {\n                    /* WARNING: Do nothing block with infinite loop */\n  } while( true );\n}\n\n",
+        "pseudocode_id": "01a1dd5c-7de0-724f-bce1-31be30f70f28",
+        "provider_evidence_id": "ev_dc762bbec6b08b0f4008e73503e5e39a775d9d342a3d94d1d719b9ee07d9076c"
+      },
+      {
+        "role": "workflow entry",
+        "function": "FUN_004011c6",
+        "address": "0x4011c6",
+        "finding_id": "01a1dd5b-cfc9-74d6-b55e-f138784ec9f7",
+        "wall_ms": 45924,
+        "run": {
+          "id": "01a1dd5c-7e03-74fb-92ea-5904a0f08e45",
+          "job_id": "01a1dd5c-7e03-74fb-92ea-5904a0f08e45",
+          "kind": "deep_function",
+          "status": "succeeded",
+          "error": null,
+          "params": {
+            "address": "0x4011c6"
+          },
+          "created_at": "2026-11-15T03:59:48.739Z",
+          "outcome": "complete",
+          "coverage": {
+            "scope": "function",
+            "xrefs": 3,
+            "thunks": 0,
+            "imports": 0,
+            "strings": 0,
+            "functions": 0,
+            "operations": [
+              {
+                "kind": "xrefs",
+                "rows": 3,
+                "status": "complete",
+                "address": "0x4011c6",
+                "indexedRows": 3
+              },
+              {
+                "kind": "decompile",
+                "rows": 1,
+                "status": "complete",
+                "address": "0x4011c6",
+                "indexedRows": 1
+              }
+            ],
+            "pseudocode": 1,
+            "completeness": "selected_function_only"
+          },
+          "limitations": [
+            "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+            "Ghidra Program checkpoint mode is disabled: closing discards metadata edits; original executable bytes are unchanged. For stock ELF/PE/Mach-O on Linux/macOS, set REA_GHIDRA_CHECKPOINT_DIR to a private absolute directory before starting REA (restart MCP after changing its startup environment).",
+            "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+            "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+            "The direct address list projects exact Ghidra references to one address but does not expose their kinds; procedure_references and analyze_function preserve available kind metadata.",
+            "Synthetic Ghidra entry-point references without actionable memory sources are omitted.",
+            "This session uses Ghidra 12.1. The bridge is verified against 12.1.4; other 12.x (>=12.1) builds are accepted and the observed version is reported.",
+            "Pseudocode is Ghidra decompiler output, not original source and not text-equivalent to Hopper output.",
+            "External functions and functions without an analyzable body return null; other decompiler failures remain explicit.",
+            "Cross-references are incoming references to selected addresses. Reference kinds and a complete call graph are unavailable."
+          ],
+          "unknowns": [],
+          "provider_version": {
+            "rea": "6.9.0",
+            "image": "sha256:4ab01cd2cfa8b23122df27ff66c61ee5df9561107bdae499aa8582d57547f971",
+            "ghidra": "12.1"
+          }
+        },
+        "pseudocode": "\nundefined8 FUN_004011c6(int param_1,long param_2)\n\n{\n  int iVar1;\n  uint uVar2;\n  ulong uVar3;\n  int local_10;\n  int local_c;\n  \n  if (((param_1 == 3) && (iVar1 = FUN_00401156(*(undefined8 *)(param_2 + 8),&local_c), iVar1 != 0))\n     && (iVar1 = FUN_00401156(*(undefined8 *)(param_2 + 0x10),&local_10), iVar1 != 0)) {\n    uVar2 = local_10 + local_c;\n    if ((int)uVar2 < 0) {\n      uVar3 = (ulong)uVar2 - 0x100000000;\n    }\n    else {\n      uVar3 = (ulong)uVar2;\n    }\n    printf(\"%.2f\\n\",(double)(long)uVar3 / 3.0);\n    return 0;\n  }\n  fwrite(\"usage: intcalc LEFT RIGHT\\n\",1,0x1a,stderr);\n  return 2;\n}\n\n",
+        "pseudocode_id": "01a1dd5d-3157-7437-9289-2674df669e04",
+        "provider_evidence_id": "ev_5fcbd040a2d24f778eea91150fdf523fff08bf03b1de25e0da3e24947df9bdf8"
+      },
+      {
+        "role": "indexed workflow callee",
+        "function": "FUN_00401156",
+        "address": "0x401156",
+        "finding_id": "01a1dd5b-cfc9-74d5-94ef-7e879bf50d1b",
+        "wall_ms": 47746,
+        "run": {
+          "id": "01a1dd5d-3180-7552-bf1a-ebf84f568007",
+          "job_id": "01a1dd5d-3180-7552-bf1a-ebf84f568007",
+          "kind": "deep_function",
+          "status": "succeeded",
+          "error": null,
+          "params": {
+            "address": "0x401156"
+          },
+          "created_at": "2026-11-15T04:00:34.688Z",
+          "outcome": "complete",
+          "coverage": {
+            "scope": "function",
+            "xrefs": 4,
+            "thunks": 0,
+            "imports": 0,
+            "strings": 0,
+            "functions": 0,
+            "operations": [
+              {
+                "kind": "xrefs",
+                "rows": 4,
+                "status": "complete",
+                "address": "0x401156",
+                "indexedRows": 4
+              },
+              {
+                "kind": "decompile",
+                "rows": 1,
+                "status": "complete",
+                "address": "0x401156",
+                "indexedRows": 1
+              }
+            ],
+            "pseudocode": 1,
+            "completeness": "selected_function_only"
+          },
+          "limitations": [
+            "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+            "Ghidra Program checkpoint mode is disabled: closing discards metadata edits; original executable bytes are unchanged. For stock ELF/PE/Mach-O on Linux/macOS, set REA_GHIDRA_CHECKPOINT_DIR to a private absolute directory before starting REA (restart MCP after changing its startup environment).",
+            "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+            "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+            "The direct address list projects exact Ghidra references to one address but does not expose their kinds; procedure_references and analyze_function preserve available kind metadata.",
+            "Synthetic Ghidra entry-point references without actionable memory sources are omitted.",
+            "This session uses Ghidra 12.1. The bridge is verified against 12.1.4; other 12.x (>=12.1) builds are accepted and the observed version is reported.",
+            "Pseudocode is Ghidra decompiler output, not original source and not text-equivalent to Hopper output.",
+            "External functions and functions without an analyzable body return null; other decompiler failures remain explicit.",
+            "Cross-references are incoming references to selected addresses. Reference kinds and a complete call graph are unavailable."
+          ],
+          "unknowns": [],
+          "provider_version": {
+            "rea": "6.9.0",
+            "image": "sha256:4ab01cd2cfa8b23122df27ff66c61ee5df9561107bdae499aa8582d57547f971",
+            "ghidra": "12.1"
+          }
+        },
+        "pseudocode": "\nundefined4 FUN_00401156(char *param_1,undefined4 *param_2)\n\n{\n  int *piVar1;\n  longlong lVar2;\n  undefined4 uVar3;\n  char *local_20;\n  \n  piVar1 = __errno_location();\n  *piVar1 = 0;\n  lVar2 = strtoll(param_1,&local_20,10);\n  if (*piVar1 == 0) {\n    uVar3 = 0;\n    if (((local_20 != param_1) && (*local_20 == '\\0')) && (lVar2 + 0x80000000U < 0x100000000)) {\n      *param_2 = (int)lVar2;\n      uVar3 = 1;\n    }\n  }\n  else {\n    uVar3 = 0;\n  }\n  return uVar3;\n}\n\n",
+        "pseudocode_id": "01a1dd5d-ebf3-705e-94e4-915ef5c03699",
+        "provider_evidence_id": "ev_8bddc22dd97c8e7105cab446d4976938050d51da130554b6b36a63da92003aab"
+      }
+    ],
+    "index": {
+      "wall_ms": 66689,
+      "run": {
+        "id": "01a1dd5a-cb61-7375-a924-604fcdf951aa",
+        "job_id": "01a1dd5a-cb61-7375-a924-604fcdf951aa",
+        "kind": "index",
+        "status": "succeeded",
+        "error": null,
+        "params": {},
+        "created_at": "2026-11-15T03:57:57.473Z",
+        "outcome": "complete",
+        "coverage": {
+          "scope": "inventory",
+          "xrefs": 4,
+          "thunks": 11,
+          "imports": 6,
+          "strings": 41,
+          "functions": 10,
+          "operations": [
+            {
+              "kind": "procedures",
+              "rows": 27,
+              "status": "complete",
+              "indexedRows": 27
+            },
+            {
+              "kind": "strings",
+              "rows": 41,
+              "status": "complete",
+              "indexedRows": 41
+            },
+            {
+              "kind": "xrefs",
+              "rows": 4,
+              "status": "complete",
+              "address": "0x401070",
+              "indexedRows": 4
+            }
+          ],
+          "pseudocode": 0,
+          "completeness": "provider_inventory_only"
+        },
+        "limitations": [
+          "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+          "Ghidra Program checkpoint mode is disabled: closing discards metadata edits; original executable bytes are unchanged. For stock ELF/PE/Mach-O on Linux/macOS, set REA_GHIDRA_CHECKPOINT_DIR to a private absolute directory before starting REA (restart MCP after changing its startup environment).",
+          "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+          "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+          "Regex mode uses Java Pattern semantics. Matcher or compiler stack exhaustion returns a resource constraint without closing the session; literal mode avoids regex recursion and returns complete matching values.",
+          "This session uses Ghidra 12.1. The bridge is verified against 12.1.4; other 12.x (>=12.1) builds are accepted and the observed version is reported.",
+          "Only Ghidra-defined string Data is observed; packed or undefined string bytes may be absent. Completeness applies to that inventory, and an empty search does not establish that text is absent from the artifact. If an address is known, use read_bytes and xrefs to inspect bytes and references.",
+          "The direct address list projects exact Ghidra references to one address but does not expose their kinds; procedure_references and analyze_function preserve available kind metadata.",
+          "Synthetic Ghidra entry-point references without actionable memory sources are omitted.",
+          "Inventory covers Ghidra-discovered entries and defined strings only. Total recoverable coverage is unknown.",
+          "Cross-references are incoming references to selected addresses. Reference kinds and a complete call graph are unavailable."
+        ],
+        "unknowns": [],
+        "provider_version": {
+          "rea": "6.9.0",
+          "image": "sha256:4ab01cd2cfa8b23122df27ff66c61ee5df9561107bdae499aa8582d57547f971",
+          "ghidra": "12.1"
+        }
+      }
+    },
+    "selected": {
+      "name": "FUN_004011c6",
+      "address": "0x4011c6",
+      "function_finding_id": "01a1dd5b-cfc9-74d6-b55e-f138784ec9f7",
+      "pseudocode_finding_id": "01a1dd5d-3157-7437-9289-2674df669e04",
+      "workflow": "FUN_004011c6",
+      "parser": "FUN_00401156",
+      "selection": "Indexed startup entry → first __libc_start_main argument → indexed workflow/local callees → addition and divide by three"
+    }
+  },
+  "artifact_sha256": "151177b2046c162f151912a9d83103fe84eaa51cbfca757af8ea22e7b0bf3d74",
+  "revision": 1,
+  "generator": {
+    "model": "cli-default",
+    "notes": "Implements leading C whitespace, optional signs, signed 32-bit input validation, and signed 32-bit addition wraparound from the supplied pseudocode.",
+    "usage": {
+      "inputTokens": 15975,
+      "outputTokens": 639
+    },
+    "job_id": "01a1dd5d-ec38-7495-bc72-33aa83cd0970",
+    "params": {
+      "repair": false,
+      "evidence_items": 4
+    },
+    "provider": "codex",
+    "input_digest": "9ae7d13c361eabd6bb09892786d7e6e1a97994148f01e8f529ef954220819b91",
+    "model_version": null,
+    "output_digest": "7b26af7e443d84fb6cd96432bd64b25d7917f473c2bec1bcc76bf8cd7b4430c0",
+    "transcript_blob": "7621d86fa637c9b85c71b03aa222b29d1ecaf65d8af1fef9ce6bcb7f366ee0b3",
+    "template_version": "ts-cli-v1"
+  },
+  "untranslated": [],
+  "build_status": "succeeded",
+  "matches": 16,
+  "results": [
+    {
+      "name": "argument out of range",
+      "outcome": "match"
+    },
+    {
+      "name": "large positive overflow",
+      "outcome": "match"
+    },
+    {
+      "name": "leading space",
+      "outcome": "match"
+    },
+    {
+      "name": "max int, no overflow",
+      "outcome": "match"
+    },
+    {
+      "name": "min int, no overflow",
+      "outcome": "match"
+    },
+    {
+      "name": "negative",
+      "outcome": "match"
+    },
+    {
+      "name": "negative overflow",
+      "outcome": "match"
+    },
+    {
+      "name": "not a number",
+      "outcome": "match"
+    },
+    {
+      "name": "plus sign",
+      "outcome": "match"
+    },
+    {
+      "name": "positive overflow",
+      "outcome": "match"
+    },
+    {
+      "name": "rounding up",
+      "outcome": "match"
+    },
+    {
+      "name": "simple",
+      "outcome": "match"
+    },
+    {
+      "name": "too few args",
+      "outcome": "match"
+    },
+    {
+      "name": "too many args",
+      "outcome": "match"
+    },
+    {
+      "name": "trailing junk",
+      "outcome": "match"
+    },
+    {
+      "name": "zero",
+      "outcome": "match"
+    }
+  ],
+  "non_match_differences": [],
+  "scope_gaps": [],
+  "wall_ms": 264520
+}
