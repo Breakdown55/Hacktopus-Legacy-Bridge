@@ -84,6 +84,8 @@ For a live smoke test using only synthetic data, start Docker with the pinned re
 
 ## Private demo on two laptops
 
+For the implementation map, test results, and remaining deployment checks, see the [Codex handoff README](docs/README-codex-handoff.md).
+
 The hosting laptop runs Next.js, PostgreSQL, S3-compatible storage and the main worker. The processing laptop makes outbound HTTPS requests to the host, claims a leased job and runs its signed-in Codex CLI. For generation it receives the approved scope, selected evidence, and optional repair files, then returns structured TypeScript. The host validates, stores and builds the revision. PostgreSQL and object storage stay on the hosting side.
 
 1. On the **hosting laptop**, follow the database, storage and browser setup above. Set `LB_CODEX_ORG_ID` to your seeded organization's UUID for both the Next.js process and the main worker. Enable `external_model_allowed` on that organization. Set `LB_GENERATION_PROVIDER=codex-remote` in the main worker shell before `npm run worker`. The host needs no Codex login.
