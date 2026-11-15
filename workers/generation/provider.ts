@@ -1,9 +1,10 @@
 import type { ScopeDocV1 } from '@lb/contracts';
+import type { Job } from '../../server/jobs/queue';
 
 /** Generation adapter (plan §6.3). The supervisor builds the request from persisted state; no conversation state is relied upon. */
 export interface CodeGenerator {
   describe(): { provider: string; model: string };
-  generate(req: GenerationRequest, ctx: { signal: AbortSignal }): Promise<GenerationResult>;
+  generate(req: GenerationRequest, ctx: { signal: AbortSignal; job?: Job }): Promise<GenerationResult>;
 }
 
 export interface EvidenceItem { findingId: string; kind: string; name: string | null; address: string | null; artifactSha256: string; location: unknown; excerpt: string }

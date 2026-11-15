@@ -1,5 +1,5 @@
 import { uuidv7 } from '../db/ids';
-import { enqueue } from '../jobs/queue';
+import { enqueue, finish } from '../jobs/queue';
 import { packTar } from '../tar';
 import { digest } from './canonical';
 import type { Ctx } from './ctx';
@@ -38,7 +38,7 @@ export function validateModuleFiles(files: { path: string; content: string }[]) 
 }
 
 /** Set only by the generation worker; the HTTP API cannot create 'generated' revisions directly. */
-export interface GeneratedInfo { generator: Record<string, unknown>; untranslated: unknown[] }
+export interface GeneratedInfo { generator: Record<string, unknown>; untranslated: unknown[]; jobId: string; workerId: string }
 export interface ModuleInput {
   scope_revision_id: string; origin: 'user_edit' | 'customer_upload' | 'generated'; parent_id?: string | null; make_current?: boolean;
   files?: { path: string; content: string }[];
@@ -77,6 +77,22 @@ export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleI
   }
   const isHead = !i.parent_id || i.parent_id === heads.current_module_revision_id;
   return c.db.tx(async (t) => {
+    if (generated) {
+      const [project] = await t.query<{ approved: string; source_matches: boolean }>(
+        `SELECT p.approved_scope_revision_id AS approved, p.current_source_revision_id=s.source_revision_id AS source_matches
+         FROM projects p JOIN scope_revisions s ON s.org_id=p.org_id AND s.project_id=p.id AND s.id=$3
+         WHERE p.org_id=$1 AND p.id=$2 AND p.deleted_at IS NULL FOR UPDATE OF p`, [c.orgId, projectId, i.scope_revision_id],
+      );
+      if (project?.approved !== i.scope_revision_id || !project.source_matches) throw new DomainError('scope_changed', 409);
+      const [org] = await t.query<{ external_model_allowed: boolean }>(
+        'SELECT external_model_allowed FROM organizations WHERE id=$1 FOR SHARE', [c.orgId],
+      );
+      if (!org?.external_model_allowed) throw new DomainError('external_model_not_allowed', 409);
+      const job = await t.query(`SELECT id FROM jobs WHERE id=$1 AND org_id=$2 AND project_id=$3 AND kind='generate'
+        AND subject_id=$4 AND lease_owner=$5 AND status='running' AND lease_expires_at>now()
+        AND cancel_requested_at IS NULL FOR UPDATE`, [generated.jobId, c.orgId, projectId, i.scope_revision_id, generated.workerId]);
+      if (!job.length) throw new DomainError('generation_lease_lost', 409);
+    }
     for (const s of stored) await t.query('INSERT INTO blobs(org_id,sha256,size_bytes,storage_key) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [c.orgId, s.sha256, s.size, s.key]);
     await t.query('INSERT INTO blobs(org_id,sha256,size_bytes,storage_key) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [c.orgId, tarBlob.sha256, tarBlob.size, tarBlob.key]);
     const number = await nextNumber(t, 'module_revisions', projectId);
@@ -86,6 +102,9 @@ export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleI
     if (isHead || i.make_current) { await moveHead(t, c.orgId, projectId, 'current_module_revision_id', id, heads.heads_version); isCurrent = true; }
     const job = await enqueue(t, { orgId: c.orgId, projectId, kind: 'build', subjectType: 'module_revision', subjectId: id, dedupeKey: `build:${id}` });
     await t.query(`INSERT INTO events(org_id,project_id,actor_id,type,subject_type,subject_id) VALUES ($1,$2,$3,'module_revision.created','module_revision',$4)`, [c.orgId, projectId, c.userId, id]);
+    if (generated && !await finish(t, generated.jobId, generated.workerId, { status: 'succeeded' })) {
+      throw new DomainError('generation_lease_lost', 409);
+    }
     return { id, number, tree_sha256: treeSha, build: { status: 'building', job_id: job.id }, is_current: isCurrent };
   });
 }

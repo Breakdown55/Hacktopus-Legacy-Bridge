@@ -1,21 +1,31 @@
 /**
  * S4 generation and source edits, driven through the API handlers and the worker with a FAKE provider (deterministic) and the real local `tsc` build.
- * The Anthropic adapter has its own unit test (tests/unit/anthropic-adapter.test.ts, injected fake client) and has not been run against the live API. The tsc build is unsandboxed (dev/test).
+ * Set LB_TEST_LIVE_CODEX=1 to also test the signed-in CLI with synthetic scope data. The tsc build is unsandboxed (dev/test).
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { testDb } from '../helpers/testdb';
 import { uuidv7 } from '../../server/db/ids';
+import { cancel } from '../../server/jobs/queue';
 import { FsBlobStore } from '../../server/storage/fs';
 import { setApp } from '../../server/app';
 import { api } from '../../server/api/handlers';
+import { generationWorkerCommand } from '../../server/api/codex-generation';
 import { drain } from '../../workers/main';
 import { generateHandler } from '../../workers/handlers/generate';
 import { controlFor, writeTree, type WorkerEnv } from '../../workers/runtime';
 import { localBuild } from '../../workers/build/local';
-import { LocalReplacementRunner } from '../../workers/execution/runners';
+import { DockerReplacementRunner, LocalReplacementRunner } from '../../workers/execution/runners';
+import { NODE_IMAGE } from '../../workers/export/build';
+import { RemoteCodexGenerator } from '../../workers/generation/remote';
+import { processRemoteGeneration } from '../../workers/generation/remote-client';
+import { remoteGenerationPath, type RemoteGenerationJob } from '../../workers/generation/remote-contract';
+import { unpackTar } from '../../server/tar';
 import { RUN_CONTRACT, type CodeGenerator, type GenerationRequest, type GenerationResult } from '../../workers/generation/provider';
 import type { Db } from '../../server/db/db';
 
@@ -54,6 +64,14 @@ const heads = async () => (await db.query<{ approved_scope_revision_id: string; 
 const generate = (body: Record<string, unknown> = {}) => call(api.moduleCreate, 'POST', '/m', { params: { pid }, body: { origin: 'generated', scope_revision_id: scopeId, ...body } });
 const modules = () => db.query<{ id: string; number: number; origin: string; parent_id: string | null; generator: Record<string, any> | null; untranslated: unknown[] }>('SELECT id, number, origin, parent_id, generator, untranslated FROM module_revisions WHERE project_id=$1 ORDER BY number', [pid]);
 const lastJob = async () => (await db.query<{ status: string; error: { code: string } | null }>("SELECT status, error FROM jobs WHERE kind='generate' ORDER BY created_at DESC, id DESC LIMIT 1"))[0];
+function remoteWorkerKeys() {
+  const workerKey = uuidv7();
+  const demoKey = uuidv7();
+  vi.stubEnv('LB_CODEX_ORG_ID', org);
+  vi.stubEnv('LB_CODEX_WORKER_KEY', workerKey);
+  vi.stubEnv('LB_CODEX_DEMO_KEY', demoKey);
+  return { workerKey, demoKey };
+}
 let scopeId: string, findingId: string;
 
 beforeAll(async () => {
@@ -176,6 +194,86 @@ describe('S4 generation', () => {
     expect((await call(api.moduleGet, 'GET', '/m', { params: { mid: edit.json.id } })).json.build.status).toBe('succeeded');
   });
 
+  it('aborts in-flight generation and publishes no revision after cancellation', async () => {
+    const count = (await modules()).length;
+    const queued = await generate({ instructions: 'cancel fixture' });
+    expect(queued.status).toBe(202);
+    const generator: CodeGenerator = {
+      ...fake,
+      async generate(_req, { signal }) {
+        const interruption = new Promise<GenerationResult>((_, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        expect(await cancel(db, org, queued.json.job_id)).toBe('cancel_requested');
+        return interruption;
+      },
+    };
+    await drain({ ...env, generator }, ['generate']);
+    expect(await lastJob()).toMatchObject({ status: 'cancelled' });
+    expect(await modules()).toHaveLength(count);
+  });
+
+  it('does not publish when organization consent is revoked during generation', async () => {
+    const count = (await modules()).length;
+    const generator: CodeGenerator = {
+      ...fake,
+      async generate() {
+        await db.query('UPDATE organizations SET external_model_allowed=false WHERE id=$1', [org]);
+        return result();
+      },
+    };
+    expect((await generate()).status).toBe(202);
+    try {
+      await drain({ ...env, generator }, ['generate']);
+      expect(await lastJob()).toMatchObject({ status: 'failed', error: { code: 'external_model_not_allowed' } });
+      expect(await modules()).toHaveLength(count);
+    } finally {
+      await db.query('UPDATE organizations SET external_model_allowed=true WHERE id=$1', [org]);
+    }
+  });
+
+  it.each([false, true])('routes requests and rejects unauthorized or stale remote leases (cancelled=%s)', async (cancelled) => {
+    const { workerKey, demoKey } = remoteWorkerKeys();
+    const send = (body: object, token = workerKey) => generationWorkerCommand(new Request('https://example.test' + remoteGenerationPath, {
+      method: 'POST', headers: { authorization: 'Bearer ' + token }, body: JSON.stringify(body),
+    }));
+    const generator = new RemoteCodexGenerator({ db, store: env.store, orgId: org, model: 'fixture-model' });
+    const count = (await modules()).length;
+    const { json, status } = await generate();
+    expect(status).toBe(202);
+    const running = drain({ ...env, generator }, ['generate']);
+    try {
+      expect((await send({ action: 'claim' }, demoKey)).status).toBe(401);
+      let remote: RemoteGenerationJob | null = null;
+      for (let i = 0; !remote && i < 40; i++) {
+        const claimed = await send({ action: 'claim' });
+        expect(claimed.status).toBe(200);
+        remote = await claimed.json() as RemoteGenerationJob | null;
+        if (!remote) await sleep(100);
+      }
+      expect(remote).toMatchObject({ model: 'fixture-model', request: { scope: { id: scopeId }, evidence: [{ findingId }] } });
+      const { id, lease } = remote!;
+      expect((await send({ action: 'heartbeat', id, lease: uuidv7() })).status).toBe(409);
+      if (cancelled) {
+        expect(await cancel(db, org, json.job_id)).toBe('cancel_requested');
+        expect(await (await send({ action: 'heartbeat', id, lease })).json()).toEqual({ cancelRequested: true });
+        const { files, untranslated, notes, usage } = result();
+        expect((await send({ action: 'complete', id, lease, result: { files, untranslated, notes, usage } })).status).toBe(409);
+      } else {
+        await processRemoteGeneration(remote!, { ...fake, generate: async () => result() },
+          body => send(body), new AbortController().signal);
+      }
+      await running;
+      expect(await lastJob()).toMatchObject({ status: cancelled ? 'cancelled' : 'succeeded' });
+      const rows = await modules();
+      expect(rows).toHaveLength(count + (cancelled ? 0 : 1));
+      if (!cancelled) expect(rows.at(-1)?.generator).toMatchObject({ provider: 'codex', model: 'fixture-model' });
+    } finally {
+      await cancel(db, org, json.job_id);
+      await running;
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('the API cannot create a generated revision without the worker, and the worker only claims generate when a provider is configured', async () => {
     const { createModuleRevision } = await import('../../server/domain/modules');
     await expect(createModuleRevision({ db, store: env.store, orgId: org, userId: editor }, pid, { origin: 'generated', scope_revision_id: scopeId, files: [{ path: 'src/index.ts', content: GOOD }] })).rejects.toMatchObject({ status: 422 });
@@ -192,4 +290,64 @@ describe('S4 generation', () => {
     await call(api.scopeDecision, 'POST', '/x', { params: { rid: rev.id }, body: { decision: 'approved', document_sha256: rev.document_sha256 } });
     expect((await generate()).json.code).toBe('scope_not_current');
   });
+
+  it.skipIf(process.env.LB_TEST_LIVE_CODEX !== '1')('generates, builds, and runs a synthetic module with Codex', async () => {
+    const put = await api.scopeDraftPut(new Request('http://t/d', {
+      method: 'PUT', headers: { 'content-type': 'application/json', 'x-org-id': org, 'x-user-id': editor, 'if-match': '"v2"' },
+      body: JSON.stringify({ document: {
+        workflow: { name: 'Word counter', invocation: { argv_template: [], stdin: 'text' } },
+        interface: { language: 'typescript' },
+        behaviors: [{ id: 'count', statement: 'Read UTF-8 stdin. Count nonempty tokens separated by whitespace. Write the decimal count followed by one newline to stdout. Empty input writes 0 and one newline.', basis: 'observed' }],
+      } }),
+    }), { params: Promise.resolve({ pid }) });
+    expect(put.status).toBe(200);
+    const rev = (await call(api.scopeRevisionCreate, 'POST', '/r', { params: { pid }, body: { from_draft_version: 3 } })).json;
+    expect((await call(api.scopeDecision, 'POST', '/x', { params: { rid: rev.id }, body: { decision: 'approved', document_sha256: rev.document_sha256 } })).status).toBe(200);
+    expect((await generate({ scope_revision_id: rev.id })).status).toBe(202);
+    const { workerKey } = remoteWorkerKeys();
+    const server = createServer(async (incoming, outgoing) => {
+      try {
+        const data: Buffer[] = [];
+        for await (const chunk of incoming) data.push(chunk as Buffer);
+        if (incoming.url !== remoteGenerationPath) { outgoing.writeHead(404).end(); return; }
+        const response = await generationWorkerCommand(new Request('http://127.0.0.1' + incoming.url, {
+          method: 'POST', headers: { authorization: incoming.headers.authorization ?? '' }, body: new Uint8Array(Buffer.concat(data)),
+        }));
+        outgoing.writeHead(response.status, Object.fromEntries(response.headers)).end(Buffer.from(await response.arrayBuffer()));
+      } catch { outgoing.writeHead(500).end(); }
+    });
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve); });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Missing smoke test server address');
+    const worker = spawn(process.execPath, ['--import', 'tsx', 'workers/codex-worker.ts'], {
+      cwd: root, windowsHide: true, stdio: 'ignore',
+      env: { ...process.env, LB_REA_ENTRY: '', LB_CODEX_WORKER_KEY: workerKey, LB_SITE_URL: `http://127.0.0.1:${address.port}` },
+    });
+    const generator = new RemoteCodexGenerator({ db, store: env.store, orgId: org, model: process.env.LB_GENERATION_MODEL });
+    try { await drain({ ...env, generator }, ['generate']); }
+    finally {
+      worker.kill();
+      server.closeAllConnections();
+      await new Promise<void>(resolve => { server.close(() => resolve()); });
+      vi.unstubAllEnvs();
+    }
+    expect(await lastJob()).toMatchObject({ status: 'succeeded' });
+    const m = (await modules()).at(-1)!;
+    expect(m.generator).toMatchObject({ ...generator.describe(), usage: { inputTokens: expect.any(Number), outputTokens: expect.any(Number) } });
+    await drain(env, ['build']);
+    expect((await call(api.moduleGet, 'GET', '/m', { params: { mid: m.id } })).json.build.status).toBe('succeeded');
+    const [built] = await db.query<{ output_blob_sha256: string }>(
+      'SELECT output_blob_sha256 FROM build_results WHERE org_id=$1 AND module_revision_id=$2', [org, m.id],
+    );
+    const moduleDir = mkdtempSync(join(tmpdir(), 'gen-live-module-'));
+    writeTree(moduleDir, unpackTar(await env.store.get(org, built.output_blob_sha256)));
+    const runner = new DockerReplacementRunner(NODE_IMAGE);
+    for (const [stdin, stdout] of [['one\t two\nthree ', '3\n'], ['', '0\n']]) {
+      const out = await runner.run({ moduleDir, workdir: mkdtempSync(join(tmpdir(), 'gen-live-run-')),
+        case: { argv: [], caseEnv: {}, stdin: Buffer.from(stdin), files: [], timeoutMs: 20_000 } });
+      expect(out.incomplete).toBeUndefined();
+      expect(out.data.observation.exit).toMatchObject({ code: 0 });
+      expect(out.data.stdout.toString()).toBe(stdout);
+    }
+  }, 11 * 60_000);
 });

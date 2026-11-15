@@ -5,6 +5,9 @@ import { isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { MAX_ANALYSIS_BYTES } from '../lib/codex-analysis';
+import { CodexGenerator } from './generation/codex';
+import { processRemoteGeneration } from './generation/remote-client';
+import { remoteGenerationPath, type RemoteGenerationJob } from './generation/remote-contract';
 
 type Job = { id: string; lease: string; sha256: string; format: 'exe' | 'elf'; context: string };
 type Failure = 'artifact_download_failed' | 'rea_failed' | 'codex_failed' | 'invalid_result';
@@ -55,25 +58,30 @@ function config() {
   }
   const key = process.env.LB_CODEX_WORKER_KEY;
   const rea = process.env.LB_REA_ENTRY;
-  if (!key || key.length < 32 || !rea || !isAbsolute(rea)) {
-    throw new Error('Set LB_CODEX_WORKER_KEY and the absolute LB_REA_ENTRY path.');
-  }
-  return { base, key, rea, node: process.env.LB_REA_NODE || process.execPath, codex: process.env.LB_CODEX_BIN || 'codex' };
+  if (!key || key.length < 32) throw new Error('Set LB_CODEX_WORKER_KEY.');
+  if (rea && !isAbsolute(rea)) throw new Error('LB_REA_ENTRY must be an absolute path.');
+  return { base, key, rea, node: process.env.LB_REA_NODE || process.execPath,
+    codex: process.env.LB_CODEX_BIN || (process.platform === 'win32' ? 'codex.exe' : 'codex') };
 }
 
 async function main() {
   const settings = config();
   const endpoint = new URL('/api/codex/worker', settings.base);
+  const generationEndpoint = new URL(remoteGenerationPath, settings.base);
   const shutdown = new AbortController();
   for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => shutdown.abort());
-  const request = (body: object, signal: AbortSignal = shutdown.signal) => fetch(endpoint, {
+  const send = (url: URL) => (body: object, signal: AbortSignal = shutdown.signal) => fetch(url, {
     method: 'POST', redirect: 'error',
     headers: { 'content-type': 'application/json', authorization: 'Bearer ' + settings.key },
     body: JSON.stringify(body),
     signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
   });
+  const request = send(endpoint);
+  const requestGeneration = send(generationEndpoint);
 
   async function processJob(job: Job) {
+    if (!settings.rea) return;
+    const reaEntry = settings.rea;
     const lease = { id: job.id, lease: job.lease };
     const working = new AbortController();
     const signal = AbortSignal.any([shutdown.signal, working.signal]);
@@ -104,7 +112,7 @@ async function main() {
       workDir = await mkdtemp(join(tmpdir(), 'lb-codex-'));
       const target = join(workDir, 'input.' + job.format);
       await writeFile(target, bytes);
-      const rea = (args: string[]) => run(settings.node, [settings.rea, ...args, '--provider', 'ghidra', '--json'], workDir!, signal);
+      const rea = (args: string[]) => run(settings.node, [reaEntry, ...args, '--provider', 'ghidra', '--json'], workDir!, signal);
       const overview = readEvidence(await rea(['inspect', target]));
       let procedures = '';
       try { procedures = readEvidence(await rea(['search', target, '.+', '--kind', 'procedures', '--mode', 'regex'])); }
@@ -152,15 +160,29 @@ async function main() {
   console.log('[lb-codex] polling', endpoint.origin);
   while (!shutdown.signal.aborted) {
     try {
-      const response = await request({ action: 'claim' });
-      if ([401, 403, 503].includes(response.status)) {
-        console.error('[lb-codex] worker rejected (HTTP ' + response.status + '). Check server configuration and keys.');
+      const generationResponse = await requestGeneration({ action: 'claim' });
+      if ([401, 403, 503].includes(generationResponse.status)) {
+        console.error('[lb-codex] worker rejected (HTTP ' + generationResponse.status + '). Check server configuration and keys.');
         process.exitCode = 1;
         return;
       }
-      if (!response.ok) throw new Error('Claim failed (HTTP ' + response.status + ').');
-      const job = await response.json() as Job | null;
-      if (job) await processJob(job);
+      if (generationResponse.ok) {
+        const job = await generationResponse.json() as RemoteGenerationJob | null;
+        if (job) await processRemoteGeneration(job, new CodexGenerator({ binary: settings.codex, model: job.model }), requestGeneration, shutdown.signal);
+      } else if (generationResponse.status !== 404 || !settings.rea) {
+        throw new Error('Generation claim failed');
+      }
+      if (settings.rea && !shutdown.signal.aborted) {
+        const response = await request({ action: 'claim' });
+        if ([401, 403, 503].includes(response.status)) {
+          console.error('[lb-codex] worker rejected (HTTP ' + response.status + '). Check server configuration and keys.');
+          process.exitCode = 1;
+          return;
+        }
+        if (!response.ok) throw new Error('Claim failed (HTTP ' + response.status + ').');
+        const job = await response.json() as Job | null;
+        if (job) await processJob(job);
+      }
     } catch {
       if (!shutdown.signal.aborted) console.error('[lb-codex] host unavailable; retrying.');
     }

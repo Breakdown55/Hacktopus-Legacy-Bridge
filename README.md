@@ -70,25 +70,30 @@ The default prototype also rejects files that are not ELF, PE or Mach-O on Impor
 
 On **Modernize**, **Generate TypeScript** asks a model to write a module from the approved scope and the findings it cites. **Repair current module** sends the current files and their build diagnostics back with optional instructions. Each result is a new numbered revision that builds automatically. You can also open any file, edit it, and **Save as new revision**, or upload your own files. A person's edit keeps the parent's list of untranslated items.
 
-Setup: set `ANTHROPIC_API_KEY` (and optionally `LB_GENERATION_MODEL`, default `claude-opus-5-5`) in the worker shell, and enable it per organization: `UPDATE organizations SET external_model_allowed = true WHERE id = '<org>';`. Without the key the worker does not claim `generate` jobs. Without the setting, the request returns 409 `external_model_not_allowed`. The scope and the cited evidence (decompiled code, strings) leave your machine when you generate.
+For two laptops, use the setup below. For single-machine development, set `LB_GENERATION_PROVIDER=codex` in the `npm run worker` shell and run `codex login` as the worker's OS user. Optionally set `LB_CODEX_BIN` to the CLI executable and `LB_GENERATION_MODEL` to a model available to that account. Without a model override, generation uses the CLI's built-in default. Codex uses its CLI login.
+
+Enable generation per organization with `UPDATE organizations SET external_model_allowed = true WHERE id = '<org>';`. The request returns 409 `external_model_not_allowed` until the setting is enabled. Scope, cited evidence, and any repair files and diagnostics are sent to Codex. The worker requires the provider setting to claim generation jobs.
 
 - **Output checks:** files must be `src/**` or `test/**` `.ts` files, import only `node:*` or relative paths, stay within the size limits, and include `src/index.ts`. Anything else fails the job with `generation_output_invalid` and creates no revision. The model does not write `package.json`, `tsconfig.json` or the CLI shim.
 - **Untranslated behavior:** the model lists what it could not translate and marks it with `LB-UNTRANSLATED:<id>`; it marks translated behaviors with `LB-BEHAVIOR:<id>`. The build compares markers, the list and the scope, and reports mismatches and unaddressed behaviors as warnings. Warnings never fail a build.
-- **Audit:** each generated revision records provider, model, reported model version, template version, input and output digests, token usage and a transcript blob.
-- **Limits and deviations:** the provider is worker configuration, so the request cannot choose one (the plan's `generator: {provider, model}` field is not accepted). Generate jobs get 2 attempts. Cancelling a job during a model call is not honored yet (S5). Direct callees of cited functions are not added to the evidence. A `generation_output_invalid` failure shows the validator's reason (rule names and file paths, up to 200 characters); model and program output never go into job errors. The `tsc` build is not sandboxed.
+- **Audit:** each revision records provider, configured model (or `cli-default`), template version, input and output digests, reported token usage, and a blob containing the request and structured response.
+- **Limits:** the worker configures the provider and model. Generate jobs get two attempts for transient failures, and cancellation interrupts the CLI. Direct callees of cited functions are outside the current evidence selection. A `generation_output_invalid` failure shows the validator's reason. `tsc` runs on the host in local development.
 - **Generate API:** `POST /api/v1/projects/{id}/module-revisions` with `origin: "generated"` returns 202 and a job id; the worker creates the revision.
+
+For a live smoke test using only synthetic data, start Docker with the pinned replacement image from the S1 setup, set `LB_TEST_LIVE_CODEX=1`, and run `npm test -- tests/api/generation.test.ts`. The test starts a separate processing worker and routes a request through the host endpoint over loopback HTTP.
 
 ## Private demo on two laptops
 
-The hosting laptop runs Next.js, PostgreSQL, and S3-compatible storage. The processing laptop polls the site over HTTPS, downloads one leased job, runs REA with Ghidra, and uses its signed-in Codex CLI to summarize the static evidence. It sends back findings and candidate features for the Select page. PostgreSQL and object storage stay on the hosting side. The processing laptop needs outbound access to the site and Codex.
+The hosting laptop runs Next.js, PostgreSQL, S3-compatible storage and the main worker. The processing laptop makes outbound HTTPS requests to the host, claims a leased job and runs its signed-in Codex CLI. For generation it receives the approved scope, selected evidence, and optional repair files, then returns structured TypeScript. The host validates, stores and builds the revision. PostgreSQL and object storage stay on the hosting side.
 
-1. On the **hosting laptop**, start PostgreSQL and S3 with `docker compose -f infra/docker-compose.yml up -d postgres s3`, configure `.env.local` from `.env.example` and set `DATABASE_URL` in the migration shell before running `npm run migrate`. Set `LB_CODEX_ORG_ID` to a dedicated organization UUID. In PostgreSQL, insert that organization with `external_model_allowed = true`: `INSERT INTO organizations (id, name, external_model_allowed) VALUES ('<org-uuid>', 'Codex demo', true);`
-2. Generate two different secrets (at least 32 characters each) for `LB_CODEX_DEMO_KEY` and `LB_CODEX_WORKER_KEY` on the host. Keep the site behind a login or private network, with HTTPS for remote connections. The browser uses the demo key and the processing laptop uses the worker key. Start the site with `npm run build` and `npm start`.
+1. On the **hosting laptop**, follow the database, storage and browser setup above. Set `LB_CODEX_ORG_ID` to your seeded organization's UUID for both the Next.js process and the main worker. Enable `external_model_allowed` on that organization. Set `LB_GENERATION_PROVIDER=codex-remote` in the main worker shell before `npm run worker`. The host needs no Codex login.
+2. Set a random `LB_CODEX_WORKER_KEY` of at least 32 characters on the host and the processing laptop. For the optional static analysis demo, set a different `LB_CODEX_DEMO_KEY` on the host and give that key to the browser user. Build and start the production site with `npm run build` and `npm start`, and proxy `/api/codex/generation` over HTTPS with a request body limit of at least 5 MiB. For generation from the full workflow UI, run the development site on the host's loopback and use it there or open `http://127.0.0.1:3110` after connecting with `ssh -L 3110:127.0.0.1:3100 user@host`. The full project workflow uses the loopback development UI until production user authentication is available.
 3. On the **processing laptop**, install the repo dependencies, sign into the CLI with `codex login`, and check `codex login status`. Set the worker environment in PowerShell using your installed paths:
 
 ```powershell
 $env:LB_SITE_URL = 'https://demo.yourdomain.me'
 $env:LB_CODEX_WORKER_KEY = '<worker key from the hosting laptop>'
+# REA and Ghidra are only needed to claim optional static analysis demo jobs.
 $env:LB_REA_ENTRY = 'C:/path/to/rea-agents/scripts/rea.mjs'
 $env:LB_REA_NODE = 'C:/path/to/node.exe'
 $env:GHIDRA_INSTALL_DIR = 'C:/path/to/ghidra'
@@ -97,7 +102,7 @@ $env:JAVA_HOME = 'C:/path/to/jdk'
 npm run worker:codex
 ```
 
-4. Open **Import**, choose a trusted PE or ELF executable (up to 16 MiB), enter the demo key, and click **Analyze executable**. If the worker is offline, the job stays queued. The browser can reopen the same job from Import or Select. Use **Add candidates to Select** to review and choose what to carry forward.
+4. Open the full workflow on loopback, approve a scope on **Select**, then click **Generate TypeScript** on **Modernize**. The processing laptop claims the request and sends the result to the hosting laptop. In the optional static analysis demo, use **Analyze executable** on **Import** with a trusted PE or ELF (up to 16 MiB) and the demo key.
 
 Use this path for private, trusted demos. The worker performs static inspection and sends bounded REA evidence and project context to Codex using the worker account's allowance. The worker does not run the uploaded file or claim that any behavior passed runtime verification. The host retains the submitted artifact and job record; deleting a browser project removes its local data only.
 

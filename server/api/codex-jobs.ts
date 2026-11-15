@@ -27,12 +27,13 @@ function equal(a: string, b: string) {
   return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 }
 
-async function handle(req: Request, audience: 'user' | 'worker', fn: (app: Awaited<ReturnType<typeof getApp>>, orgId: string) => Promise<Response>) {
+export async function withCodexAccess(req: Request, audience: 'user' | 'worker', fn: (app: Awaited<ReturnType<typeof getApp>>, orgId: string) => Promise<Response>) {
   const orgId = uuid.safeParse(process.env.LB_CODEX_ORG_ID);
   const userKey = process.env.LB_CODEX_DEMO_KEY;
   const workerKey = process.env.LB_CODEX_WORKER_KEY;
-  if (!orgId.success || !userKey || !workerKey || userKey.length < 32 || workerKey.length < 32 || equal(userKey, workerKey)) {
-    return problem(503, 'codex_worker_disabled', 'Remote analysis is not configured');
+  if (!orgId.success || !workerKey || workerKey.length < 32 ||
+    (audience === 'user' && (!userKey || userKey.length < 32)) || (userKey && equal(userKey, workerKey))) {
+    return problem(503, 'codex_worker_disabled', 'Remote Codex is not configured');
   }
   const key = audience === 'worker' ? workerKey : userKey;
   if (!equal(req.headers.get('authorization') ?? '', 'Bearer ' + key)) {
@@ -48,7 +49,7 @@ async function handle(req: Request, audience: 'user' | 'worker', fn: (app: Await
   }
 }
 
-async function readBody(req: Request, limit: number): Promise<Buffer | null> {
+export async function readBody(req: Request, limit: number): Promise<Buffer | null> {
   if (Number(req.headers.get('content-length')) > limit || !req.body) return null;
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -67,7 +68,7 @@ async function readBody(req: Request, limit: number): Promise<Buffer | null> {
   } finally { reader.releaseLock(); }
 }
 
-export const submitAnalysis = (req: Request) => handle(req, 'user', async ({ db, store }, orgId) => {
+export const submitAnalysis = (req: Request) => withCodexAccess(req, 'user', async ({ db, store }, orgId) => {
   let context: string;
   try { context = decodeURIComponent(req.headers.get('x-lb-context') ?? ''); }
   catch { return problem(400, 'invalid_context', 'Invalid analysis context'); }
@@ -87,7 +88,7 @@ export const submitAnalysis = (req: Request) => handle(req, 'user', async ({ db,
   return Response.json({ id: job.id }, { status: 202 });
 });
 
-export const analysisStatus = (req: Request) => handle(req, 'user', async ({ db }, orgId) => {
+export const analysisStatus = (req: Request) => withCodexAccess(req, 'user', async ({ db }, orgId) => {
   const id = uuid.safeParse(new URL(req.url).searchParams.get('id'));
   if (!id.success) return problem(404, 'not_found', 'Analysis job not found');
   await reap(db, KIND, orgId);
@@ -100,7 +101,7 @@ export const analysisStatus = (req: Request) => handle(req, 'user', async ({ db 
   } satisfies AnalysisStatus, { headers: { 'cache-control': 'no-store' } });
 });
 
-export const workerCommand = (req: Request) => handle(req, 'worker', async ({ db, store }, orgId) => {
+export const workerCommand = (req: Request) => withCodexAccess(req, 'worker', async ({ db, store }, orgId) => {
   const data = await readBody(req, 96 * 1024);
   let raw: unknown;
   try { raw = data && JSON.parse(data.toString()); } catch { /* invalid request */ }

@@ -12,7 +12,7 @@
 > | §4.4 invariants, staleness (`applies_to_current`), binding digests | Built and tested (`server/domain/`). |
 > | §5 API | 30 routes under `app/api/v1`, `next build` passes. Tested by calling handlers with real `Request` objects, not over a running HTTP server. Auth is a **dev-only header scheme** (`LB_DEV_AUTH=1`); OIDC is S7. |
 > | §6.1 analysis | Built the REA 6.9.0 / Ghidra 12.1 analysis worker alongside the built-in inspector. The x86-64 ELF index and focused functions record artifact hashes, pinned image IDs, raw evidence, and coverage limits. PE reports an unsupported result. |
-> | §6.3 generation | Built (S4): `CodeGenerator` adapter, Anthropic Messages adapter, evidence selection (cited findings plus pseudocode for cited functions, capped), output validator, `generate` job. Tested with a fake provider and a stubbed `fetch`; **never run against the live Anthropic API**, and F3 (quality on stripped code) is untouched. Direct callees of selected functions are not added to the evidence yet. |
+> | §6.3 generation | Built (S4): Codex CLI behind `CodeGenerator`, bounded evidence selection, output validator, and a cancellable `generate` job. Set `LB_GENERATION_PROVIDER=codex-remote` for a separate processing laptop or `codex` for local execution. F3 (quality on stripped code) is untouched. Direct callees of selected functions are outside current evidence selection. |
 > | §7 harness, compare engine, replay | Built (`workers/execution`, `packages/compare`); the outcome decision (`judge`) is shared by the verify worker and the exported replay. |
 > | §8.1 isolation | Original binaries and replacement modules run in hardened containers (no network, read-only rootfs, non-root, caps dropped) on **Docker runc, not gVisor**. **`tsc` builds still run unsandboxed on the host** (`LB_SANDBOX=direct`, refused in production). `RunscLauncher` was deleted: `runtime: 'runsc'` is an option on the Docker runners. |
 > | §9 export | Built: deterministic zip, `SHA256SUMS`, integrity verifier, offline replay verified on the host and in `node:22 --network none`. `--docker` / `--original` flags of `run-cases.mjs` are **not implemented**. |
@@ -22,7 +22,7 @@
 > | Written but never run | `infra/images/{web,worker}`, `infra/runsc/README.md`, EC2/RDS/S3 deployment. The worker image sets `NODE_ENV=production`, so it refuses to start until the build step is sandboxed or you opt in. |
 > | Slice S2 | Findings, candidate signals, focused pseudocode, and scope citations are implemented on Select and the versioned API. The pinned image recovered 12 of 12 reference function addresses from stripped `wordfreq`. The browser flow verified raw evidence download and scope approval against PostgreSQL and S3Mock. Local S2 analysis ran on Docker runc. See [S2 setup](../README.md#s2-executable-evidence). |
 > | Slice S3 | Draft editing with `If-Match`, immutable numbered revisions with lineage (`parent_id`, `scope_drafts.base_revision_id`), approve or reject (rejection needs a comment), `GET /scope-revisions/{id}` (document, decision, hydrated cited findings) and `GET /projects/{id}/scope-revisions`. Approval requires at least one behavior and a revision written for the current source revision. Re-approval marks earlier runs `scope_reapproved`; progress reports `scope_source_changed` and `module_scope_outdated`. Select is a structured editor with a JSON view. Tested on PGlite and PG16; the simultaneous-approval test is `Promise.allSettled` over the unique constraint (multi-connection on PG16, single-connection on PGlite). **Not built:** a generation step that consumes the scope (S4); `scope.v1.ts` is still `packages/contracts/src/scope.ts`; the structured form was not exercised in a browser. |
-> | Slice S4 | `origin: generated` via a 202 job; gated by the approved scope head and `external_model_allowed` (request and worker); records provider, model, template, input and output digests, usage and transcript blob; invalid output fails the job with no revision; repair and regenerate build a new request from persisted files and diagnostics; edits create revision N+1 with an inherited untranslated list; the build cross-checks `LB-UNTRANSLATED` / `LB-BEHAVIOR` markers as warnings. Modernize has generate, repair, file editor, untranslated list and warnings. Not exercised in a browser. The `intcalc` acceptance case (lists untranslated overflow or verifies a match) was not run, since it needs a live model. **Deviations and limits:** the provider is worker config, so the plan's `generator: {provider, model}` request field is not accepted; generate jobs use `max_attempts` 2; cancelling during a model call is not honored (the abort signal is not wired to `cancel_requested`; S5 owns cancel); direct callees of selected functions are not added to the evidence; a `generation_output_invalid` job error carries the validator's own reason (rule names and file paths, up to 200 characters) while model and program output never go into job errors; the `tsc` build is still unsandboxed. |
+> | Slice S4 | Generation requires the approved scope and organization consent. Codex produces a new revision with template, digests, usage, and transcript. The worker cancels the CLI when its job is cancelled and rechecks consent and scope before publishing. Repair sends prior files and build diagnostics in a fresh request. The build reports behavior marker mismatches as warnings. A live two-process smoke generated a synthetic word-count module and checked two outputs in Docker. The stripped `intcalc` acceptance case and public-domain deployment remain open. |
 > | Slices S5–S7 | Not started. S5 has backend pieces from S1 (compare engine). |
 >
 > Decisions taken: local development on Docker, production target one AWS EC2 Linux host with gVisor, RDS PostgreSQL and S3 (§12.5 Q1).
@@ -480,7 +480,7 @@ POST /api/v1/scope-revisions/:rid/decision   {"decision":"approved","document_sh
 **Modules (Modernize)**
 ```http
 POST /api/v1/projects/:pid/module-revisions
-{"origin":"generated","scope_revision_id":"scp_…","generator":{"provider":"anthropic","model":"claude-opus-5-5"}}
+{"origin":"generated","scope_revision_id":"scp_…","generator":{"provider":"codex","model":"cli-default"}}
 → 202 {"job_id":"job_gen"}            (job creates the module revision, then enqueues build)
 
 POST /api/v1/projects/:pid/module-revisions
@@ -616,7 +616,7 @@ export interface GenerationResult {
   transcript: unknown;                               // stored as blob for audit, never as system of record
 }
 ```
-- **Default provider:** Anthropic Messages API (`claude-opus-5-5`, configurable to `claude-sonnet-5-5`), structured output with tool or JSON schema. One request per generation. A repair pass (max 1) is a *new* request built from persisted state: scope, evidence, prior files and build diagnostics. No conversation state is relied upon. The DB plus blobs are the system of record.
+- **Provider:** Signed-in Codex CLI with a JSON output schema. The worker selects the model. Each generation and repair starts a fresh session built from persisted scope, evidence, and any prior files and build diagnostics. The database and blobs are the system of record.
 - **Inputs:** only the approved scope revision (by id + digest) and evidence excerpts chosen by the supervisor (the findings cited by scope behaviors, plus the decompiled bodies of the selected candidate functions and their direct callees).
 - **Outputs:** the supervisor writes the CLI shim and `package.json`/`tsconfig.json` from templates. The model writes only `src/**`. Path traversal, symlinks, files outside the allow-list, or any `import` of a non-`node:` module → rejected (`generation_output_invalid`), shown to the user, and the generation job fails without creating a revision.
 - **Untranslated behavior:** the model must emit both the structured list and `/* LB-UNTRANSLATED:<id> */` markers. The build worker cross-checks them: unlisted markers or listed ids without markers become build *warnings*. Scope behaviors not referenced by any `LB-BEHAVIOR:<id>` marker and not listed as untranslated are reported as `unaddressed_behaviors`.
@@ -759,7 +759,7 @@ legacy-bridge-<project-slug>-<exportId8>/
   "project": { "id": "prj_…", "name": "Wordfreq" },
   "binding": { "source_revision": { "id": "src_1", "manifest_sha256": "…", "primary": { "path": "bin/wordfreq", "sha256": "9f2c…" } },
                "scope_revision": { "id": "scp_3", "sha256": "…", "approved_by": "user_…", "approved_at": "…" },
-               "module_revision": { "id": "mod_5", "tree_sha256": "…", "origin": "generated", "generator": { "provider": "anthropic", "model": "…" } },
+               "module_revision": { "id": "mod_5", "tree_sha256": "…", "origin": "generated", "generator": { "provider": "codex", "model": "…" } },
                "build": { "id": "bld_…", "image": "sha256:…", "toolchain": { "node": "22.x", "typescript": "…" } },
                "case_set": { "id": "cs_4", "digest": "…" }, "policy": { "id": "pol_2", "digest": "…" },
                "environment": { "replacement": "sha256:…", "original": "sha256:…" },
@@ -782,14 +782,14 @@ legacy-bridge-<project-slug>-<exportId8>/
 app/api/v1/**/route.ts        # Route Handlers (thin: auth → validate → server/domain)
 server/  db/{schema.ts,migrations/}  domain/{projects,sources,analysis,scope,modules,cases,verification,exports}/
          jobs/{enqueue.ts,claim.ts,reaper.ts}  storage/s3.ts  auth/  http/{problem.ts,idempotency.ts,pagination.ts}
-workers/ main.ts  analysis/{builtin-elf,rea}/  generation/{provider.ts,anthropic.ts,templates/}  build/  execution/{launcher.ts,harness/}  export/
+workers/ main.ts  analysis/{builtin-elf,rea}/  generation/{provider.ts,codex.ts,templates/}  build/  execution/{launcher.ts,harness/}  export/
 packages/contracts/           # zod schemas shared by UI + API
 packages/compare/             # pure comparison engine, vendored into exports
 infra/ docker-compose.yml  images/{analysis,node-build,run-glibc,run-node22}/Dockerfile  runsc/
 fixtures/ src/*.c  Makefile (builds in pinned gcc image; emits stripped + unstripped)  replacements/*/  cases/*/
 tests/ unit/ integration/ e2e/
 ```
-Tooling to add: `vitest`, `drizzle-orm` + `drizzle-kit`, `pg`, `zod`, `@aws-sdk/client-s3` + presigner, `next-auth`, `pino`, `@anthropic-ai/sdk` (S4). npm workspaces for `packages/*`.
+Tooling to add: `vitest`, `drizzle-orm` + `drizzle-kit`, `pg`, `zod`, `@aws-sdk/client-s3` + presigner, `next-auth`, `pino`, and the Codex CLI (S4). npm workspaces for `packages/*`.
 
 ### 10.1 Feasibility experiments (timeboxed, before S2+; F2 and F4 before S1 completes)
 | # | Question | Exit criterion |
@@ -892,7 +892,7 @@ Tooling to add: `vitest`, `drizzle-orm` + `drizzle-kit`, `pg`, `zod`, `@aws-sdk/
 | Target | TypeScript/Node 22, no runtime deps | Matches the stack and UI. C numeric semantics need care. |
 | Progress delivery | Polling with ETag; SSE later | Slightly more requests. Simplest and robust behind proxies. |
 | Revisions | Immutable rows + mutable head pointers via CAS | More rows. Gives exact lineage and safe concurrency. |
-| Generation | Single-shot structured requests built from persisted state; Anthropic default behind `CodeGenerator` | Replaceable provider, no conversational system of record. Requires org consent. |
+| Generation | Structured requests built from persisted state; Codex CLI behind `CodeGenerator` | The database stores the generation inputs and outputs. Requires org consent. |
 
 ### 12.2 Facts (verified in this session)
 - The repo is a client-only Next.js 16 / React 19 / TS 7 prototype. Import keeps only the filename. Context accepts image/video only. Verify and Export are mocked. There is no backend, DB, tests, CI, infra or AGENTS.md.

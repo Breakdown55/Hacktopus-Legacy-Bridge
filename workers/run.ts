@@ -8,7 +8,9 @@ import { CONTROLS, ensureEnvironment } from '../server/domain/environments';
 import { S3BlobStore } from '../server/storage/s3';
 import { DockerReaAnalysisRunner } from './analysis/rea/runner';
 import { localBuild } from './build/local';
-import { AnthropicGenerator } from './generation/anthropic';
+import { CodexGenerator } from './generation/codex';
+import { RemoteCodexGenerator } from './generation/remote';
+import { z } from 'zod';
 import { DockerOriginalRunner, DockerReplacementRunner } from './execution/runners';
 import { NODE_IMAGE } from './export/build';
 import { defaultWorkerId, workerLoop } from './main';
@@ -32,6 +34,10 @@ async function main() {
   const workRoot = process.env.LB_WORK_ROOT ?? '/var/lib/lb/jobs';
   mkdirSync(workRoot, { recursive: true });
   const analysisImage = process.env.LB_ANALYSIS_IMAGE;
+  const generationProvider = process.env.LB_GENERATION_PROVIDER;
+  const model = process.env.LB_GENERATION_MODEL || undefined;
+  const remoteOrg = generationProvider === 'codex-remote' ? z.uuid().safeParse(process.env.LB_CODEX_ORG_ID) : undefined;
+  if (remoteOrg && !remoteOrg.success) throw new Error('Set LB_CODEX_ORG_ID to the authorized remote Codex organization ID.');
   const env: WorkerEnv = {
     db, store, workRoot, workerId: defaultWorkerId(),
     original: new DockerOriginalRunner({ runtime: process.env.LB_RUNTIME || undefined }),
@@ -40,7 +46,9 @@ async function main() {
       image: analysisImage, runtime: process.env.LB_ANALYSIS_RUNTIME || process.env.LB_RUNTIME || undefined,
     }) : undefined,
     // Generation sends scope and evidence to the model provider; it also needs organizations.external_model_allowed per org.
-    generator: process.env.ANTHROPIC_API_KEY ? new AnthropicGenerator({ apiKey: process.env.ANTHROPIC_API_KEY, model: process.env.LB_GENERATION_MODEL || undefined }) : undefined,
+    generator: remoteOrg?.success ? new RemoteCodexGenerator({ db, store, orgId: remoteOrg.data, model })
+      : generationProvider === 'codex' ? new CodexGenerator({ binary: process.env.LB_CODEX_BIN || undefined, model })
+      : undefined,
     build: localBuild,
   };
   let stop = false;
