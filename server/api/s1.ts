@@ -1,4 +1,5 @@
-import { getHeads } from '../domain/projects';
+import { getHeads, getProjectTarget } from '../domain/projects';
+import { targetEnvironment } from '@lb/contracts';
 import { getVerificationRun } from '../domain/queries';
 import { getExport } from '../domain/exports';
 import { problem, route } from '../http/handler';
@@ -25,8 +26,10 @@ export async function s1Config(req: Request) {
 
 const workspace = route({ role: 'viewer' }, async ({ ctx, url }) => {
   const projectId = url.searchParams.get('project');
+  const target = projectId ? await getProjectTarget(ctx.db, ctx.orgId, projectId) : undefined;
   const environments = await ctx.db.query<{ id: string; name: string; role: string }>(
-    "SELECT DISTINCT ON (role) id,name,role FROM execution_environments WHERE name IN ('original-glibc','replacement-node22') ORDER BY role,version DESC",
+    'SELECT DISTINCT ON (role) id,name,role FROM execution_environments WHERE name IN ($1,$2) ORDER BY role,version DESC',
+    ['original-glibc', targetEnvironment(target?.id ?? 'typescript')],
   );
   if (!projectId) return { body: { environments } };
   const heads = await getHeads(ctx.db, ctx.orgId, projectId);

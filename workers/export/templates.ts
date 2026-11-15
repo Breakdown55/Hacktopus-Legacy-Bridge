@@ -23,8 +23,12 @@ const outFile = args.out;
 const json = (p) => JSON.parse(readFileSync(join(root, p), 'utf8'));
 const policy = json('policy/comparison-policy.json');
 const expected = json('results/verification-summary.json');
+const commandPath = 'environment/replacement-command.json';
+const command = existsSync(join(root, commandPath))
+  ? json(commandPath).argv.map(part => part.replace('{module}', join(root, 'module')))
+  : [process.execPath, join(root, 'module/bin/cli.mjs')];
 
-if (!existsSync(join(root, 'module/dist/index.js'))) {
+if (!existsSync(join(root, commandPath)) && !existsSync(join(root, 'module/dist/index.js'))) {
   console.log('module/dist missing: building with tsc (needs network for npm ci)');
   execFileSync('npm', ['ci'], { cwd: join(root, 'module'), stdio: 'inherit' });
   execFileSync('npx', ['tsc'], { cwd: join(root, 'module'), stdio: 'inherit' });
@@ -47,7 +51,7 @@ for (const id of readdirSync(join(root, 'cases')).sort()) {
   const workdir = mkdtempSync(join(tmpdir(), 'lb-replay-'));
   let run = null, err;
   try {
-    run = await runCase({ command: process.execPath, args: [join(root, 'module/bin/cli.mjs'), ...input.argv], controlEnv: { ...REPLACEMENT_CONTROLS, PATH: process.env.PATH ?? '', HOME: workdir }, caseEnv: input.env, stdin: readIf(join(dir, 'stdin.bin')), files, workdir, timeoutMs: input.timeout_ms });
+    run = await runCase({ command: command[0], args: [...command.slice(1), ...input.argv], controlEnv: { ...REPLACEMENT_CONTROLS, PATH: process.env.PATH ?? '', HOME: workdir, DOTNET_CLI_HOME: workdir, DOTNET_NOLOGO: '1' }, caseEnv: input.env, stdin: readIf(join(dir, 'stdin.bin')), files, workdir, timeoutMs: input.timeout_ms });
   } catch (e) { err = String(e.message); }
   const result = judge(policy, ref, run, err);
   report.cases[id] = result.outcome;

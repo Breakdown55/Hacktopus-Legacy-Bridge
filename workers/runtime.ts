@@ -6,6 +6,7 @@ import { heartbeat } from '../server/jobs/queue';
 import type { BlobStore } from '../server/storage/blobstore';
 import type { Ctx } from '../server/domain/ctx';
 import type { BuildOutput } from './build/local';
+import type { DockerOpts } from './execution/runners';
 import type { OriginalRunner, ReplacementRunner } from './execution/runners';
 import type { ReaAnalysisRunner } from './analysis/rea/runner';
 import type { CodeGenerator } from './generation/provider';
@@ -17,6 +18,7 @@ export interface WorkerEnv {
   /** Absent unless a provider is configured; the generate job kind is not claimed without it. */
   generator?: CodeGenerator;
   build: (files: { path: string; content: Buffer }[]) => Promise<BuildOutput>;
+  buildDocker?: DockerOpts;
 }
 export class CancelledError extends Error { constructor() { super('cancelled'); } }
 export class LeaseLostError extends Error { constructor() { super('lease lost'); } }

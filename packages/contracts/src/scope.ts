@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TARGET_IDS } from './targets';
 
 const Basis = z.enum(['observed', 'inferred', 'customer_requirement', 'intentional_change']);
 
@@ -22,8 +23,8 @@ export const ScopeDocV1 = z.object({
       }),
     )
     .default([]),
-  interface: z.object({ language: z.literal('typescript'), export: z.string().default('run') }).catchall(z.unknown()),
-  behaviors: z.array(z.object({ id: z.string(), statement: z.string(), basis: Basis, evidence: z.array(z.string()).default([]), notes: z.string().default('') })).default([]),
+  interface: z.object({ language: z.enum(TARGET_IDS), export: z.string().default('run') }).catchall(z.unknown()),
+  behaviors: z.array(z.object({ id: z.string(), label: z.string().min(1).max(100).optional(), statement: z.string(), basis: Basis, evidence: z.array(z.string()).default([]), notes: z.string().default('') })).default([]),
   intentional_changes: z.array(z.object({ id: z.string(), behavior: z.string(), description: z.string(), approved_reason: z.string() })).default([]),
   decisions: z.array(z.object({ id: z.string(), text: z.string(), by: z.string().optional(), at: z.string().optional() })).default([]),
   assumptions: z.array(z.object({ id: z.string(), text: z.string() })).default([]),

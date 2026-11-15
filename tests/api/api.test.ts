@@ -116,7 +116,7 @@ describe('workflow over the API', () => {
     expect((await call(api.sourceCreate, 'POST', '/s', { params: { pid: ids.pid }, body: { artifacts: [{ upload_id: bad.upload_id, path: 'x', role: 'primary_executable' }] } })).json.code).toBe('hash_mismatch');
   });
   it('scope: If-Match required (428), stale (412); approval is single-shot; module needs approved scope', async () => {
-    const doc = { workflow: { name: 'hello', invocation: { argv_template: [], stdin: 'none' } }, interface: { language: 'typescript', export: 'run' }, behaviors: [{ id: 'greet', statement: 'Prints a greeting', basis: 'observed' }] };
+    const doc = { workflow: { name: 'hello', invocation: { argv_template: [], stdin: 'none' } }, interface: { language: 'typescript', export: 'run' }, behaviors: [{ id: 'greet', label: 'Print greeting', statement: 'Prints a greeting', basis: 'observed' }] };
     expect((await call(api.scopeDraftPut, 'PUT', '/d', { params: { pid: ids.pid }, body: { document: doc } })).status).toBe(428);
     expect((await call(api.scopeDraftPut, 'PUT', '/d', { params: { pid: ids.pid }, body: { document: { nope: 1 } }, headers: { 'if-match': '"v0"' } })).json.code).toBe('validation_failed');
     const v1 = await call(api.scopeDraftPut, 'PUT', '/d', { params: { pid: ids.pid }, body: { document: doc }, headers: { 'if-match': '"v0"' } });
@@ -124,6 +124,7 @@ describe('workflow over the API', () => {
     expect((await call(api.scopeDraftPut, 'PUT', '/d', { params: { pid: ids.pid }, body: { document: doc }, headers: { 'if-match': '"v0"' } })).status).toBe(412);
     expect((await call(api.scopeDraftGet, 'GET', '/d', { params: { pid: ids.pid } })).headers.get('etag')).toBe('"v1"');
     const rev = await ok(call(api.scopeRevisionCreate, 'POST', '/r', { params: { pid: ids.pid }, body: { from_draft_version: 1 } }), 201);
+    expect((await ok(call(api.scopeRevisionGet, 'GET', '/r', { params: { rid: rev.id } }))).document.behaviors[0].label).toBe('Print greeting');
     ids.scope = rev.id;
     const files = [{ path: 'src/index.ts', content: "export async function run() { return { stdout: 'hi\\n' }; }\n" }];
     expect((await call(api.moduleCreate, 'POST', '/m', { params: { pid: ids.pid }, body: { origin: 'customer_upload', scope_revision_id: ids.scope, files } })).json.code).toBe('scope_not_approved');
@@ -201,7 +202,7 @@ describe('cross-tenant sweep: every generated route, org B (admin there) asking 
   const walk = (d: string): string[] => readdirSync(d).flatMap((e) => { const p = join(d, e); return statSync(p).isDirectory() ? walk(p) : p.endsWith('route.ts') ? [p] : []; });
   const BODY: Record<string, unknown> = {
     uploadCreate: { filename: 'x', size: 1, sha256: 'a'.repeat(64) }, sourceCreate: { artifacts: [{ upload_id: uuidv7(), path: 'x', role: 'primary_executable' }] }, sourceConsent: { acknowledge: 'I am authorized to run this' },
-    sourceProbe: { environment_id: uuidv7() }, analysisRunCreate: { kind: 'index' }, scopeDraftPut: { document: { workflow: { name: 'x', invocation: { argv_template: [] } }, interface: { language: 'typescript' } } }, scopeRevisionCreate: { from_draft_version: 1 },
+    sourceProbe: { environment_id: uuidv7() }, analysisRunCreate: { kind: 'index' }, functionNameSuggest: { finding_id: uuidv7() }, scopeDraftPut: { document: { workflow: { name: 'x', invocation: { argv_template: [] } }, interface: { language: 'typescript' } } }, scopeRevisionCreate: { from_draft_version: 1 },
     scopeDecision: { decision: 'approved', document_sha256: 'a'.repeat(64) }, moduleCreate: { origin: 'customer_upload', scope_revision_id: uuidv7(), files: [{ path: 'src/index.ts', content: 'x' }] },
     testCaseCreate: { name: 'x', input: {} }, referenceCapture: { source_revision_id: uuidv7(), environment_id: uuidv7(), test_case_ids: [uuidv7()] },
     referenceSupply: { provenance: 'user_supplied', observation: { exit: { code: 0, signal: null } }, attestation: 'x' }, caseSetCreate: { set: [{ test_case_id: uuidv7(), reference_output_id: null }] },

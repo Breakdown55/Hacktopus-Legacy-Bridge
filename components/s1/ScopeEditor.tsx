@@ -57,7 +57,7 @@ export default function ScopeEditor({ doc, onChange, disabled }: Props) {
 
     <fieldset className="s3-group" disabled={disabled}>
       <legend>Dependencies ({doc.dependencies?.length ?? 0})</legend>
-      <p className="hint">Time, randomness, environment, files and network that the program relies on. Say who is responsible once it is TypeScript.</p>
+      <p className="hint">Time, randomness, environment, files and network that the program relies on. Say who is responsible in the replacement.</p>
       {(doc.dependencies ?? []).map((d: Dependency, i) => <div key={d.id} className="s3-item">
         <label className="field">Kind
           <select value={d.kind} onChange={e => set({ dependencies: replaceAt(doc.dependencies, i, { kind: e.target.value }) })}>

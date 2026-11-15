@@ -2,11 +2,11 @@ import type { Job } from '../../server/jobs/queue';
 import { ScopeDocV1 } from '@lb/contracts';
 import { digest } from '../../server/domain/canonical';
 import { DomainError } from '../../server/domain/errors';
-import { getHeads } from '../../server/domain/projects';
+import { getHeads, getProjectTarget } from '../../server/domain/projects';
 import { createModuleRevision, getModuleFiles } from '../../server/domain/modules';
 import { putBlob } from '../../server/storage/blobs';
 import { buildEvidence } from '../generation/evidence';
-import { RUN_CONTRACT, TEMPLATE_VERSION, type GenerationRequest } from '../generation/provider';
+import { generationTarget, PORTABLE_TEMPLATE_VERSION, TEMPLATE_VERSION, type GenerationRequest } from '../generation/provider';
 import { GenerationOutputInvalid, validateGenerated } from '../generation/validate';
 import { JobError, LeaseLostError, RetryableError, orgCtx, type JobControl, type WorkerEnv } from '../runtime';
 
@@ -21,6 +21,7 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
   const org = (await env.db.query<{ external_model_allowed: boolean }>('SELECT external_model_allowed FROM organizations WHERE id=$1', [job.org_id]))[0];
   if (!org?.external_model_allowed) throw new JobError('external_model_not_allowed');
   const heads = await getHeads(env.db, job.org_id, projectId);
+  const target = await getProjectTarget(env.db, job.org_id, projectId);
   if (heads.approved_scope_revision_id !== p.scope_revision_id) throw new JobError('scope_changed');
   // A retried job must not create a second revision.
   const done = await env.db.query<{ id: string }>(`SELECT id FROM module_revisions WHERE org_id=$1 AND project_id=$2 AND generator->>'job_id'=$3`, [job.org_id, projectId, job.id]);
@@ -39,8 +40,8 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
     priorRevision = { id: p.parent_id, files, buildDiagnostics: b?.diagnostics };
   }
   const request: GenerationRequest = {
-    templateVersion: TEMPLATE_VERSION, scope: { id: p.scope_revision_id, sha256: scope.document_sha256, document: parsed.data }, evidence,
-    target: { language: 'typescript', runtime: 'node22', entry: 'src/index.ts', export: 'run', allowRuntimeDeps: false, runContract: RUN_CONTRACT },
+    templateVersion: target.id === 'typescript' ? TEMPLATE_VERSION : PORTABLE_TEMPLATE_VERSION, scope: { id: p.scope_revision_id, sha256: scope.document_sha256, document: parsed.data }, evidence,
+    target: generationTarget(target.id),
     priorRevision, instructions: p.instructions || undefined,
   };
   await ctl.checkpoint({ phase: 'generating' });
@@ -69,7 +70,7 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
   if (interrupted) throw interrupted;
   await ctl.checkpoint({ phase: 'validating' });
   let untranslated;
-  try { untranslated = validateGenerated(result, new Set(parsed.data.behaviors.map((b) => b.id))); }
+  try { untranslated = validateGenerated(result, new Set(parsed.data.behaviors.map((b) => b.id)), target.id); }
   catch (e) {
     if (e instanceof GenerationOutputInvalid) throw new JobError('generation_output_invalid', e.detail);
     throw e;
@@ -77,7 +78,7 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
   const transcript = await putBlob(env.db, env.store, job.org_id, Buffer.from(JSON.stringify(result.transcript ?? null)), 'application/json');
   const d = gen.describe();
   const generator = {
-    job_id: job.id, provider: d.provider, model: d.model, model_version: result.modelVersion ?? null, template_version: TEMPLATE_VERSION,
+    job_id: job.id, provider: d.provider, model: d.model, model_version: result.modelVersion ?? null, template_version: request.templateVersion,
     params: { evidence_items: evidence.length, repair: !!p.parent_id }, input_digest: digest(request), output_digest: digest(result.files),
     transcript_blob: transcript.sha256, usage: result.usage, notes: result.notes.slice(0, 2000),
   };

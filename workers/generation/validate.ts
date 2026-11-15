@@ -1,4 +1,5 @@
 import { DomainError } from '../../server/domain/errors';
+import type { TargetLanguage } from '@lb/contracts';
 import { validateModuleFiles } from '../../server/domain/modules';
 import type { GenerationResult, Untranslated } from './provider';
 
@@ -8,11 +9,11 @@ export class GenerationOutputInvalid extends Error { constructor(public detail: 
  * Validates model output before anything is stored: allow-listed paths (src/** and test/** .ts), no traversal, no non-`node:` imports,
  * size and count limits, the required entry file, and a well-formed untranslated list. The model never writes package.json, tsconfig or the CLI shim.
  */
-export function validateGenerated(r: GenerationResult, behaviorIds: Set<string>): Untranslated[] {
+export function validateGenerated(r: GenerationResult, behaviorIds: Set<string>, language: TargetLanguage = 'typescript'): Untranslated[] {
   try {
     if (!Array.isArray(r.files) || r.files.some((f) => typeof f?.path !== 'string' || typeof f?.content !== 'string')) throw new GenerationOutputInvalid('files must be {path, content} strings');
     for (const f of r.files) if (f.path.includes('\\') || /[\0]/.test(f.content)) throw new GenerationOutputInvalid(`unsafe file: ${f.path.slice(0, 80)}`);
-    validateModuleFiles(r.files);
+    validateModuleFiles(r.files, language);
   } catch (e) {
     if (e instanceof GenerationOutputInvalid) throw e;
     if (e instanceof DomainError) throw new GenerationOutputInvalid(`${e.code}: ${e.message}`.slice(0, 300));

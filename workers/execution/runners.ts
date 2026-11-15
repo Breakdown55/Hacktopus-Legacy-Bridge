@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { TargetLanguage } from '@lb/contracts';
+import { targetCommand } from '../build/toolchains';
 import { runCase, type RunOutcome } from './harness';
 
 export interface CaseRun { argv: string[]; caseEnv: Record<string, string>; stdin: Buffer; files: { path: string; content: Buffer; mode: string }[]; timeoutMs: number }
@@ -8,7 +10,7 @@ export interface CaseRun { argv: string[]; caseEnv: Record<string, string>; stdi
 export interface OriginalRunner {
   run(a: { artifactDir: string; binaryRel: string; hasLibs: boolean; case: CaseRun; workdir: string; imageDigest: string }): Promise<RunOutcome>;
 }
-export interface ReplacementRunner { run(a: { moduleDir: string; case: CaseRun; workdir: string }): Promise<RunOutcome> }
+export interface ReplacementRunner { run(a: { moduleDir: string; case: CaseRun; workdir: string; target?: TargetLanguage; imageDigest?: string }): Promise<RunOutcome> }
 
 export const REPLACEMENT_CONTROLS = { TZ: 'UTC', LC_ALL: 'C.UTF-8', LB_FAKE_NOW: '2000-01-01T00:00:00.000Z', LB_SEED: '1' };
 
@@ -25,9 +27,10 @@ export interface DockerOpts { docker?: string; runtime?: string; platform?: stri
  * The single source of truth for isolation flags (§8.1): no network, read-only rootfs, non-root, all capabilities dropped,
  * no-new-privileges, cgroup limits. `runtime: 'runsc'` selects gVisor on Linux worker hosts; Docker Desktop only has runc.
  */
-export function hardeningArgs(o: { name: string; runtime?: string; platform?: string }): string[] {
+export function hardeningArgs(o: { name: string; runtime?: string; platform?: string; build?: boolean }): string[] {
   return ['--name', o.name, ...(o.runtime ? [`--runtime=${o.runtime}`] : []), ...(o.platform ? ['--platform', o.platform] : []),
-    '--network=none', '--read-only', '--user=10001:10001', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--memory=512m', '--cpus=1', '--pids-limit=64', '--tmpfs=/tmp:rw,size=64m'];
+    '--network=none', '--read-only', '--user=10001:10001', '--cap-drop=ALL', '--security-opt=no-new-privileges',
+    o.build ? '--memory=1g' : '--memory=512m', '--cpus=1', '--pids-limit=64', o.build ? '--tmpfs=/tmp:rw,size=512m' : '--tmpfs=/tmp:rw,size=64m'];
 }
 
 const imageByDigest = (image: string) => { if (!/@sha256:[0-9a-f]{64}$/.test(image)) throw new Error('execution images must be pinned by digest'); return image; };
@@ -60,8 +63,11 @@ export class DockerOriginalRunner implements OriginalRunner {
  */
 export class DockerReplacementRunner implements ReplacementRunner {
   constructor(private image: string, private opts: DockerOpts = {}) {}
-  run(a: { moduleDir: string; case: CaseRun; workdir: string }) {
+  run(a: { moduleDir: string; case: CaseRun; workdir: string; target?: TargetLanguage; imageDigest?: string }) {
     const env = { ...REPLACEMENT_CONTROLS, HOME: '/tmp', ...a.case.caseEnv };
-    return dockerRun(this.opts, { image: this.image, mounts: [`${a.moduleDir}:/opt/module:ro`], env, cmd: ['node', '/opt/module/bin/cli.mjs', ...a.case.argv], platform: this.opts.platform, workdir: a.workdir, c: a.case });
+    const target = a.target ?? 'typescript';
+    const cmd = targetCommand(target).map(part => part.replace('{module}', '/opt/module'));
+    return dockerRun(this.opts, { image: a.imageDigest ?? this.image, mounts: [`${a.moduleDir}:/opt/module:ro`], env,
+      cmd: [...cmd, ...a.case.argv], platform: this.opts.platform ?? (target === 'typescript' ? undefined : 'linux/amd64'), workdir: a.workdir, c: a.case });
   }
 }

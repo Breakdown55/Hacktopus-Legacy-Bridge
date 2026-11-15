@@ -70,7 +70,7 @@ export default function S1Home() {
         <label className="field">Description<input name="description" maxLength={140} /></label>
         <label className="field">Package for
           <select name="target_language" defaultValue="typescript">
-            {TARGET_LANGUAGES.map(t => <option key={t.id} value={t.id}>{t.label}{t.supported ? '' : ' (not available yet)'}</option>)}
+            {TARGET_LANGUAGES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
         </label>
         <div className="actions">

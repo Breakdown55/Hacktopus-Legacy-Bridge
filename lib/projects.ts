@@ -1,4 +1,5 @@
 import type { Project } from './types';
+import { targetOf } from '@lb/contracts';
 
 export const storageKey = 'legacy-bridge-projects-v1';
 export const stages = ['Import', 'Select', 'Modernize', 'Verify', 'Export'];
@@ -58,14 +59,16 @@ export function downloadFile(blob: Blob, name: string) {
 }
 
 export function downloadPlan(project: Project) {
+  const target = targetOf(project.target_language);
   const result = {
     name: project.name,
     description: project.description,
+    target_language: target.id,
     source: project.source || '',
     notes: project.notes || '',
     selectedFeatures: project.selected,
-    plannedTools: project.selected.map(s => s + '.ts'),
-    plannedTests: project.selected.map(s => s + '.test.ts'),
+    plannedTools: project.selected.map(s => s + '.' + target.extension),
+    plannedTests: project.selected.map(s => s + '.test.' + target.extension),
   };
   const name = (project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'legacy-bridge') + '-plan.json';
   downloadFile(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }), name);

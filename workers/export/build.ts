@@ -1,7 +1,7 @@
 import { build } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import type { CaseInput, Observation } from '@lb/contracts';
+import { moduleLanguage, targetOf, type CaseInput, type Observation } from '@lb/contracts';
 import { COMPARE_ENGINE_VERSION } from '@lb/compare';
 import type { Db } from '../../server/db/db';
 import type { BlobStore } from '../../server/storage/blobstore';
@@ -10,11 +10,12 @@ import { citedFindingIds } from '../../server/domain/scope';
 import { bindingDigest } from '../../server/domain/verification';
 import { unpackTar } from '../../server/tar';
 import { TSCONFIG } from '../build/templates';
+import { NODE_IMAGE, targetCommand } from '../build/toolchains';
 import { RUN_CASES, VERIFY_INTEGRITY } from './templates';
 import { basicExample, dockerfileOriginal, normalizeUntranslated, readme, unresolvedMarkdown } from './content';
 import { zip } from './zip';
 
-export const NODE_IMAGE = 'node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee';
+export { NODE_IMAGE };
 const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');
 const j = (v: unknown) => Buffer.from(JSON.stringify(v, null, 2) + '\n');
 
@@ -34,7 +35,10 @@ export async function buildExport(a: { db: Db; store: BlobStore; orgId: string; 
   const project = await one<{ name: string }>('SELECT name FROM projects WHERE id=$1', [ex.project_id]);
   const scope = await one<{ document: any; document_sha256: string; id: string }>('SELECT id, document, document_sha256 FROM scope_revisions WHERE id=$1', [run.scope_revision_id]);
   const approval = await one<{ decided_by: string; created_at: string }>("SELECT decided_by, created_at FROM approvals WHERE scope_revision_id=$1 AND decision='approved'", [run.scope_revision_id]);
-  const mod = await one<{ file_manifest: { path: string; sha256: string }[]; tree_sha256: string; origin: string; generator: unknown; untranslated: unknown }>('SELECT file_manifest, tree_sha256, origin, generator, untranslated FROM module_revisions WHERE id=$1', [run.module_revision_id]);
+  const mod = await one<{ file_manifest: { path: string; sha256: string }[]; tree_sha256: string; origin: string; generator: unknown; untranslated: unknown; target: string }>('SELECT file_manifest, tree_sha256, origin, generator, untranslated, target FROM module_revisions WHERE id=$1', [run.module_revision_id]);
+  const language = moduleLanguage(mod.target);
+  if (!language) throw new Error('unknown module target');
+  const target = targetOf(language);
   const build = await one<{ output_blob_sha256: string; build_image_digest: string; toolchain: unknown }>('SELECT output_blob_sha256, build_image_digest, toolchain FROM build_results WHERE id=$1', [run.build_result_id]);
   const csr = await one<{ entries: { test_case_id: string; reference_output_id: string | null }[]; digest: string }>('SELECT entries, digest FROM case_set_revisions WHERE id=$1', [run.case_set_revision_id]);
   const policy = await one<{ rules: Record<string, any>; digest: string }>('SELECT rules, digest FROM comparison_policies WHERE id=$1', [run.comparison_policy_id]);
@@ -57,8 +61,8 @@ export async function buildExport(a: { db: Db; store: BlobStore; orgId: string; 
   // module/: editable source + prebuilt output + supervisor templates
   for (const f of mod.file_manifest) add(`module/${f.path}`, await store.get(orgId, f.sha256));
   for (const f of unpackTar(await store.get(orgId, build.output_blob_sha256))) add(`module/${f.path}`, f.content);
-  add('module/tsconfig.json', TSCONFIG);
-  add('module/INTERFACE.md', `# Interface\n\nThe module exports \`run(input, deps)\` from \`src/index.ts\`; \`bin/cli.mjs\` maps process I/O to it.\n\n\`\`\`json\n${JSON.stringify(scope.document.interface ?? {}, null, 2)}\n\`\`\`\n`);
+  if (language === 'typescript') add('module/tsconfig.json', TSCONFIG);
+  add('module/INTERFACE.md', `# Interface\n\n${target.label} exposes \`${target.symbol}\` from \`${target.entry}\`. The launcher in \`bin/\` maps process I/O to it.\n\n\`\`\`json\n${JSON.stringify({ ...scope.document.interface, language, export: target.symbol }, null, 2)}\n\`\`\`\n`);
 
   // harness/
   add('harness/lib.mjs', a.harness ?? (await bundleHarness(a.repoRoot)));
@@ -122,15 +126,19 @@ export async function buildExport(a: { db: Db; store: BlobStore; orgId: string; 
   const origEnvIds = (await db.query<{ execution_env_id: string }>('SELECT DISTINCT execution_env_id FROM reference_outputs WHERE test_case_id = ANY($1::uuid[]) AND execution_env_id IS NOT NULL', [csr.entries.map((e) => e.test_case_id)])).map((r) => r.execution_env_id);
   const origEnvs = origEnvIds.length ? await db.query<{ name: string; version: number; image_digest: string; controls: unknown }>('SELECT name, version, image_digest, controls FROM execution_environments WHERE id = ANY($1::uuid[])', [origEnvIds]) : [];
   add('environment/environment.json', j({ replacement: { name: replEnv.name, version: replEnv.version, image: replEnv.image_digest, controls: replEnv.controls }, original: origEnvs.map((o) => ({ name: o.name, version: o.version, image: o.image_digest, controls: o.controls })), build: { image: build.build_image_digest, toolchain: build.toolchain } }));
-  add('environment/Dockerfile.replacement', `FROM ${NODE_IMAGE}\nCOPY . /pkg\nWORKDIR /pkg\nUSER node\nCMD ["sh", "-c", "node harness/verify-integrity.mjs && node harness/run-cases.mjs --out /tmp/replay-report.json"]\n`);
+  const image = language === 'typescript' ? NODE_IMAGE : replEnv.image_digest;
+  if (language !== 'typescript') add('environment/replacement-command.json', j({ argv: targetCommand(language), platform: 'linux/amd64' }));
+  const goExecutable = language === 'go'
+    ? 'COPY --chmod=0755 module/dist/legacy-cli /pkg/module/dist/legacy-cli\n' : '';
+  add('environment/Dockerfile.replacement', `FROM ${image}\n${language === 'typescript' ? '' : `COPY --from=${NODE_IMAGE} /usr/local/bin/node /usr/local/bin/node\nENTRYPOINT []\n`}COPY . /pkg\n${goExecutable}WORKDIR /pkg\nUSER ${language === 'typescript' ? 'node' : '10001:10001'}\nCMD ["sh", "-c", "node harness/verify-integrity.mjs && node harness/run-cases.mjs --out /tmp/replay-report.json"]\n`);
   const binaryName = primaryArt.path.split('/').pop()!;
   add('environment/Dockerfile.original', dockerfileOriginal({ image: origEnvs[0]?.image_digest ?? 'debian:bookworm-slim', binaryName, includeOriginal: a.includeOriginal, hasLib: primary.some((p) => p.role === 'shared_library') }));
-  add('environment/DEPENDENCIES.md', `# Dependencies\n\n- Replacement runtime: ${NODE_IMAGE} (Node 22). The module has no third-party runtime dependencies.\n- Controls applied during verification: TZ=UTC, LC_ALL=C.UTF-8, LB_FAKE_NOW=2000-01-01T00:00:00Z, LB_SEED=1.\n- Original run image: ${origEnvs[0]?.image_digest ?? 'n/a'}.\n`);
+  add('environment/DEPENDENCIES.md', `# Dependencies\n\n- Replacement runtime: ${image} (${target.label}). The module uses standard library dependencies.\n- Controls applied during verification: TZ=UTC, LC_ALL=C.UTF-8, LB_FAKE_NOW=2000-01-01T00:00:00Z, LB_SEED=1.\n- Original run image: ${origEnvs[0]?.image_digest ?? 'n/a'}.\n`);
   if (a.includeOriginal) {
     for (const p of primary) if (['primary_executable', 'shared_library'].includes(p.role)) add(`original/${p.role === 'shared_library' ? 'lib' : 'bin'}/${p.path.split('/').pop()}`, await store.get(orgId, p.blob_sha256));
   }
-  add('README.md', readme(project.name, { includeOriginal: a.includeOriginal, engine }));
-  add('module/examples/basic.mjs', basicExample(firstArgv));
+  add('README.md', readme(project.name, { includeOriginal: a.includeOriginal, engine, language: target.name, docker: language !== 'typescript' }));
+  if (language === 'typescript') add('module/examples/basic.mjs', basicExample(firstArgv));
 
   const manifest = {
     format: 'legacy-bridge-export/1',
@@ -138,7 +146,7 @@ export async function buildExport(a: { db: Db; store: BlobStore; orgId: string; 
     binding: {
       source_revision: { id: run.source_revision_id, manifest_sha256: src.manifest_sha256, primary: { path: primaryArt.path, sha256: primaryArt.blob_sha256 } },
       scope_revision: { id: scope.id, sha256: scope.document_sha256, approved_by: approval.decided_by, approved_at: new Date(approval.created_at).toISOString() },
-      module_revision: { id: run.module_revision_id, tree_sha256: mod.tree_sha256, origin: mod.origin, generator: mod.generator },
+      module_revision: { id: run.module_revision_id, tree_sha256: mod.tree_sha256, origin: mod.origin, target: mod.target, generator: mod.generator },
       build: { id: run.build_result_id, image: build.build_image_digest, toolchain: build.toolchain },
       case_set: { id: run.case_set_revision_id, digest: csr.digest }, policy: { id: run.comparison_policy_id, digest: policy.digest },
       environment: { replacement: replEnv.image_digest, original: origEnvs.map((o) => o.image_digest) },

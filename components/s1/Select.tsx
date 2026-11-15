@@ -3,19 +3,19 @@
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { projectPath } from '@/lib/projects';
-import { post, s1, settleJob } from '@/lib/s1-client';
+import { post, s1, settleJob, waitJob } from '@/lib/s1-client';
 import { emptyScope, newId, prune, type Scope } from '@/lib/scope-doc';
 import { useS1Project } from './ProjectShell';
 import { useResource, type Operation } from './StageFrame';
 
 type Candidate = { title: string; findings: string[]; signals: string[] };
 type Run = { id: string; kind: 'index' | 'deep_function'; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; outcome: string | null; params?: { address?: string } };
-type Draft = { version: number };
+type Draft = { version: number; document: Scope | null };
+type Suggestion = { name: string; reason: string };
 
 const signalText: Record<string, string> = { entry_point_name: 'main function', incoming_references: 'called from elsewhere' };
 const MAX_PSEUDOCODE = 4;
 
-/** Features REA found in the executable (tick the ones to modernize), plus a box for features it missed. Nothing else. */
 export default function Select({ op }: { op: Operation }) {
   const router = useRouter();
   const { project, refresh } = useS1Project();
@@ -27,11 +27,40 @@ export default function Select({ op }: { op: Operation }) {
   const analysing = !index || index.status === 'queued' || index.status === 'running';
   const found = useResource<{ items: Candidate[]; run_id: string | null }>(sourceId && index?.status === 'succeeded' ? sourcePath + '/candidates' : null);
   const candidates = found.data?.items ?? [];
+  const draft = useResource<Draft>(candidates.length ? path + '/scope-draft' : null);
   const [off, setOff] = useState<Set<string>>(new Set());
   const [extra, setExtra] = useState<string[]>([]);
   const [typed, setTyped] = useState('');
-  const chosen = candidates.filter(c => !off.has(c.title));
+  const [editing, setEditing] = useState<string | null>(null);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [suggestions, setSuggestions] = useState<Record<string, Suggestion | null>>({});
+  const chosen = candidates.filter(c => !off.has(c.findings[0]));
   const total = chosen.length + extra.length;
+
+  function definedLabel(id: string) {
+    return labels[id] ?? draft.data?.document?.behaviors?.find(b => b.evidence[0] === id)?.label ?? '';
+  }
+
+  function suggest(id: string) {
+    void op.run('Suggesting a label…', async (signal) => {
+      const deadline = AbortSignal.timeout(100_000);
+      const requestSignal = AbortSignal.any([signal, deadline]);
+      const job = await s1<{ job_id: string }>(path + '/function-name-suggestions', {
+        method: 'POST', data: { finding_id: id }, signal: requestSignal,
+      });
+      try {
+        const { suggestion } = await waitJob<{ suggestion: Suggestion | null }>(job.job_id, requestSignal);
+        setSuggestions(previous => ({ ...previous, [id]: suggestion }));
+        return '';
+      } catch (error) {
+        if (deadline.aborted || /function_naming_unavailable/.test((error as Error).message))
+          throw new Error('AI naming is unavailable. You can enter a label manually.');
+        if (/function_pseudocode_missing/.test((error as Error).message))
+          throw new Error('This function has no pseudocode yet. You can enter a label manually.');
+        throw error;
+      }
+    });
+  }
 
   function add(event: FormEvent) {
     event.preventDefault();
@@ -59,9 +88,12 @@ export default function Select({ op }: { op: Operation }) {
       }
       progress('Saving your selection…');
       const behaviors: NonNullable<Scope['behaviors']> = [];
-      for (const c of chosen) behaviors.push({ id: newId('feature'), statement: 'Keep the behavior of ' + c.title + '.', basis: 'inferred', evidence: c.findings });
+      for (const c of chosen) {
+        const label = definedLabel(c.findings[0]).trim();
+        behaviors.push({ id: newId('feature'), ...(label ? { label } : {}), statement: 'Keep the behavior of ' + (label || c.title) + '.', basis: 'inferred', evidence: c.findings });
+      }
       for (const text of extra) behaviors.push({ id: newId('feature'), statement: text, basis: 'customer_requirement', evidence: [] });
-      const doc = prune({ ...emptyScope(project.name), behaviors });
+      const doc = prune({ ...emptyScope(project.name, project.target_language), behaviors });
       const draft = await s1<Draft>(path + '/scope-draft', { signal }).catch(() => { signal.throwIfAborted(); return { version: 0 }; });
       signal.throwIfAborted(); // nothing is written once the page has been left
       await s1(path + '/scope-draft', { method: 'PUT', headers: { 'if-match': '"v' + (draft?.version ?? 0) + '"' }, data: { document: doc } });
@@ -84,10 +116,37 @@ export default function Select({ op }: { op: Operation }) {
         {sourceId && index?.status === 'succeeded' && !candidates.length && !found.error && <p className="hint">Nothing obvious was found. Type the features you want.</p>}
         {found.error && <p role="alert">{found.error}</p>}
         <div className="checks">
-          {candidates.map(c => <label key={c.title}>
-            <input type="checkbox" checked={!off.has(c.title)} disabled={op.busy} onChange={e => { const n = new Set(off); if (e.target.checked) n.delete(c.title); else n.add(c.title); setOff(n); }} />
-            {c.title}{c.signals.length ? ' · ' + c.signals.map(s => signalText[s] ?? s).join(', ') : ''}
-          </label>)}
+          {candidates.map(c => {
+            const id = c.findings[0];
+            const label = definedLabel(id);
+            const suggestion = suggestions[id];
+            return <div key={id}>
+              <div className="function-label-row">
+                <label>
+                  <input type="checkbox" checked={!off.has(id)} disabled={op.busy} onChange={e => { const n = new Set(off); if (e.target.checked) n.delete(id); else n.add(id); setOff(n); }} />
+                  <span>{label.trim() || c.title}{c.signals.length ? ' · ' + c.signals.map(s => signalText[s] ?? s).join(', ') : ''}</span>
+                </label>
+                <button type="button" className="secondary" disabled={op.busy} aria-expanded={editing === id}
+                  aria-label={'Rename ' + c.title} onClick={() => setEditing(editing === id ? null : id)}>Rename</button>
+              </div>
+              {editing === id && <div className="function-label-editor">
+                <div className="field">
+                  <label htmlFor={'function-label-' + id}>Label for {c.title}</label>
+                  <input id={'function-label-' + id} value={label} placeholder={c.title} maxLength={100} disabled={op.busy}
+                    onChange={e => { const value = e.target.value; setLabels(previous => ({ ...previous, [id]: value })); }} />
+                </div>
+                <button type="button" className="secondary" disabled={op.busy} onClick={() => suggest(id)}>Suggest with AI</button>
+                {suggestion && <div className="function-label-suggestion">
+                  <p className="hint"><strong>{suggestion.name}</strong> · {suggestion.reason}</p>
+                  <button type="button" className="secondary" disabled={op.busy} onClick={() => {
+                    setLabels(previous => ({ ...previous, [id]: suggestion.name }));
+                    setSuggestions(previous => { const next = { ...previous }; delete next[id]; return next; });
+                  }}>Use suggestion</button>
+                </div>}
+                {suggestion === null && <p className="hint">The evidence didn’t support a label.</p>}
+              </div>}
+            </div>;
+          })}
           {extra.map(name => <label key={name}><input type="checkbox" checked disabled={op.busy} onChange={() => setExtra(extra.filter(x => x !== name))} />{name}</label>)}
         </div>
       </section>

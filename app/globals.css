@@ -1,4 +1,6 @@
 :root{color-scheme:dark;--bg:#151619;--top:#1f2024;--surface:#282b30;--card:#303339;--border:#50545e;--text:#f8f9fa;--muted:#c2c6cf;--silver:#e2e6ec;--green:#83d7a0;--amber:#e8c183;--danger:#ffacb5;font:16px/1.5 Inter,system-ui,sans-serif}
+.machine-badge{margin-inline-start:auto;padding:3px 8px;border:1px solid currentColor;border-radius:5px;color:var(--green);font-size:11px;font-weight:700;letter-spacing:.08em}
+.machine-badge[data-profile="TEST"]{color:var(--amber)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}button,input,textarea{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--silver);outline-offset:4px}button:disabled{cursor:default;opacity:.5}[hidden]{display:none!important}p,h1,h2,h3{margin:0}svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}::selection{background:#bcf1ca;color:var(--bg)}
 .top{height:68px;border-bottom:1px solid #3d4047;background:var(--top);display:flex;align-items:center;padding:0 32px}.brand{display:flex;align-items:center;gap:12px;background:none;color:var(--text);border:0;padding:5px 0;font-size:19px;font-weight:700;letter-spacing:-.03em}.brand svg{width:25px;height:25px;color:var(--silver)}
 .picker{width:min(1072px,100%);padding:38px 24px 48px;margin:auto;text-align:center}
@@ -97,3 +99,8 @@
 .s3-review{margin-top:10px}
 
 .s1-q { display: inline-flex; align-items: center; justify-content: center; width: 1.25em; height: 1.25em; border-radius: 50%; background: #f5c542; color: #1a1a1a; font-weight: 700; font-size: 0.85em; cursor: help; }
+.function-label-row,.function-label-suggestion{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.function-label-row label{min-width:0}.function-label-row span{overflow-wrap:anywhere}
+.function-label-editor{display:grid;justify-items:start;gap:8px;margin:8px 0 4px 28px}
+.function-label-editor .field{width:100%}.function-label-editor .field input{width:100%;height:auto}
+.function-label-row .secondary,.function-label-editor .secondary{padding:4px 9px;font-size:13px}

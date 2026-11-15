@@ -2,6 +2,7 @@
 
 import Action from './Action';
 import type { StageProps } from '../StagePage';
+import { targetOf } from '@lb/contracts';
 
 export default function ModernizeStage(props: StageProps) {
   const { project, onAdvance } = props;
@@ -14,7 +15,7 @@ export default function ModernizeStage(props: StageProps) {
           <ol className="process">
             <li>Analyze structure</li>
             <li>Isolate selected features</li>
-            <li>Prepare TypeScript modules</li>
+            <li>Prepare {targetOf(project.target_language).name} modules</li>
           </ol>
         </section>
         <section className="panel">

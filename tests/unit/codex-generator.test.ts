@@ -17,6 +17,18 @@ const success = {
 const moduleOutput = { files: [{ path: 'src/index.ts', content: 'example' }], untranslated: [], notes: '' };
 
 describe('CodexGenerator', () => {
+  it.each([{ name: 'parse_operand', reason: 'Calls strtoll and checks the range.' }, null])(
+    'returns an evidence-based label or no suggestion (%j)', async suggestion => {
+      const generator = new CodexGenerator({ execute: async (_, args, call) => {
+        expect(call.input).toContain('Untrusted input');
+        expect(call.input).toContain('inferred label');
+        await writeFile(args[args.indexOf('--output-last-message') + 1], JSON.stringify({ suggestion }));
+        return success;
+      } });
+      await expect(generator.suggestFunctionName(request.evidence, options().signal)).resolves.toEqual(suggestion);
+    },
+  );
+
   it('sends a scope and evidence via stdin and keeps credentials, raw events, and tool permissions out', async () => {
     vi.stubEnv('DATABASE_URL', 'sensitive-database');
     vi.stubEnv('OPENAI_API_KEY', 'sensitive-key');

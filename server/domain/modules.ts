@@ -1,10 +1,11 @@
 import { uuidv7 } from '../db/ids';
+import { moduleTarget, targetOf, type TargetLanguage } from '@lb/contracts';
 import { enqueue, finish } from '../jobs/queue';
 import { packTar } from '../tar';
 import { digest } from './canonical';
 import type { Ctx } from './ctx';
 import { DomainError } from './errors';
-import { assertScopeApproved, getHeads, moveHead, nextNumber, assertTargetSupported } from './projects';
+import { assertScopeApproved, getHeads, getProjectTarget, moveHead, nextNumber } from './projects';
 import { safePath } from './sources';
 
 export const MODULE_LIMITS = { files: 50, bytes: 512 * 1024 };
@@ -20,21 +21,30 @@ export function findDisallowedImports(src: string): string[] {
   return out;
 }
 
-export function validateModuleFiles(files: { path: string; content: string }[]) {
+export function validateModuleFiles(files: { path: string; content: string }[], language: TargetLanguage = 'typescript') {
+  const target = targetOf(language);
+  const sourcePath = new RegExp(`^(src|test)/(?:[a-zA-Z0-9_-]+/)*[a-zA-Z0-9_.-]+\\.${target.extension}$`);
   if (!files.length || files.length > MODULE_LIMITS.files) throw new DomainError('generation_output_invalid', 422, `1 to ${MODULE_LIMITS.files} files required`);
   let bytes = 0;
   const seen = new Set<string>();
   for (const f of files) {
     safePath(f.path);
-    if (!/^(src|test)\/.+\.ts$/.test(f.path)) throw new DomainError('invalid_path', 422, `Only src/** and test/** .ts files are allowed: ${f.path}`);
-    if (seen.has(f.path)) throw new DomainError('duplicate_path', 422, f.path);
-    seen.add(f.path);
+    if (/[\\:\x00-\x1f]/.test(f.path) || Buffer.byteLength(f.path) > 100) {
+      throw new DomainError('invalid_path', 422, `Unsafe path: ${f.path}`);
+    }
+    if (language === 'typescript' ? !/^(src|test)\/.+\.ts$/.test(f.path) : !sourcePath.test(f.path)) {
+      throw new DomainError('invalid_path', 422, `Only src/** and test/** .${target.extension} files are allowed: ${f.path}`);
+    }
+    if (f.content.includes('\0')) throw new DomainError('generation_output_invalid', 422, 'Source must be text');
+    const pathKey = f.path.toLowerCase();
+    if (seen.has(pathKey)) throw new DomainError('duplicate_path', 422, f.path);
+    seen.add(pathKey);
     bytes += Buffer.byteLength(f.content);
-    const bad = findDisallowedImports(f.content);
+    const bad = language === 'typescript' ? findDisallowedImports(f.content) : [];
     if (bad.length) throw new DomainError('disallowed_import', 422, `Non-node: imports are not allowed: ${bad.join(', ')}`);
   }
   if (bytes > MODULE_LIMITS.bytes) throw new DomainError('quota_exceeded', 429, 'Module exceeds 512 KiB');
-  if (!seen.has('src/index.ts')) throw new DomainError('entry_missing', 422, 'src/index.ts exporting run() is required');
+  if (!files.some(f => f.path === target.entry)) throw new DomainError('entry_missing', 422, `${target.entry} exporting ${target.symbol} is required`);
 }
 
 /** Set only by the generation worker; the HTTP API cannot create 'generated' revisions directly. */
@@ -55,7 +65,7 @@ async function filesOf(c: Ctx, moduleId: string): Promise<{ path: string; conten
 export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleInput, generated?: GeneratedInfo) {
   if ((i.origin === 'generated') !== !!generated) throw new DomainError('invalid_request', 422, 'generated revisions come from the generation worker');
   const heads = await getHeads(c.db, c.orgId, projectId);
-  await assertTargetSupported(c.db, c.orgId, projectId);
+  const target = await getProjectTarget(c.db, c.orgId, projectId);
   await assertScopeApproved(c.db, c.orgId, projectId, i.scope_revision_id);
   let files = i.files ?? [];
   if (i.changes) {
@@ -64,7 +74,7 @@ export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleI
     for (const ch of i.changes) { if (ch.delete) map.delete(ch.path); else map.set(ch.path, ch.content ?? ''); }
     files = [...map].map(([path, content]) => ({ path, content }));
   }
-  validateModuleFiles(files);
+  validateModuleFiles(files, target.id);
   const stored = await Promise.all(files.map(async (f) => ({ path: f.path, ...(await c.store.put(c.orgId, Buffer.from(f.content))) })));
   const manifest = stored.map((s) => ({ path: s.path, sha256: s.sha256, size: s.size })).sort((a, b) => (a.path < b.path ? -1 : 1));
   const tarBlob = await c.store.put(c.orgId, packTar(files.map((f) => ({ path: f.path, content: Buffer.from(f.content) }))));
@@ -97,8 +107,8 @@ export async function createModuleRevision(c: Ctx, projectId: string, i: ModuleI
     for (const s of stored) await t.query('INSERT INTO blobs(org_id,sha256,size_bytes,storage_key) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [c.orgId, s.sha256, s.size, s.key]);
     await t.query('INSERT INTO blobs(org_id,sha256,size_bytes,storage_key) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [c.orgId, tarBlob.sha256, tarBlob.size, tarBlob.key]);
     const number = await nextNumber(t, 'module_revisions', projectId);
-    await t.query(`INSERT INTO module_revisions(id,org_id,project_id,number,parent_id,scope_revision_id,origin,source_tree_blob_sha256,tree_sha256,file_manifest,untranslated,generator,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [id, c.orgId, projectId, number, i.parent_id ?? null, i.scope_revision_id, i.origin, tarBlob.sha256, treeSha, JSON.stringify(manifest), JSON.stringify(untranslated), generated ? JSON.stringify(generated.generator) : null, c.userId]);
+    await t.query(`INSERT INTO module_revisions(id,org_id,project_id,number,parent_id,scope_revision_id,origin,source_tree_blob_sha256,tree_sha256,file_manifest,untranslated,generator,created_by,target) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [id, c.orgId, projectId, number, i.parent_id ?? null, i.scope_revision_id, i.origin, tarBlob.sha256, treeSha, JSON.stringify(manifest), JSON.stringify(untranslated), generated ? JSON.stringify(generated.generator) : null, c.userId, moduleTarget(target.id)]);
     let isCurrent = false;
     if (isHead || i.make_current) { await moveHead(t, c.orgId, projectId, 'current_module_revision_id', id, heads.heads_version); isCurrent = true; }
     const job = await enqueue(t, { orgId: c.orgId, projectId, kind: 'build', subjectType: 'module_revision', subjectId: id, dedupeKey: `build:${id}` });

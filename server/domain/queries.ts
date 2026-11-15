@@ -115,7 +115,7 @@ export async function getResult(c: Ctx, resultId: string) {
 }
 
 export async function getModule(c: Ctx, moduleId: string) {
-  const m = (await c.db.query<any>('SELECT id, project_id, number, parent_id, scope_revision_id, origin, tree_sha256, file_manifest, untranslated, generator FROM module_revisions WHERE id=$1 AND org_id=$2', [moduleId, c.orgId]))[0];
+  const m = (await c.db.query<any>('SELECT id, project_id, number, parent_id, scope_revision_id, origin, target, tree_sha256, file_manifest, untranslated, generator FROM module_revisions WHERE id=$1 AND org_id=$2', [moduleId, c.orgId]))[0];
   if (!m) throw new DomainError('not_found', 404);
   const b = (await c.db.query<any>('SELECT attempt, status, diagnostics FROM build_results WHERE module_revision_id=$1 ORDER BY attempt DESC LIMIT 1', [moduleId]))[0];
   const active = (await c.db.query<{ status: string }>(`SELECT status FROM jobs WHERE kind='build' AND subject_id=$1 AND status IN ('queued','running')`, [moduleId]))[0];

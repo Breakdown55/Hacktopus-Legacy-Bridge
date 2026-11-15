@@ -1,5 +1,6 @@
 import type { Db } from '../db/db';
 import { COMPARE_ENGINE_VERSION } from '@lb/compare';
+import { moduleLanguage, targetEnvironment, TARGET_IDS } from '@lb/contracts';
 import { digest } from './canonical';
 import { getHeads } from './projects';
 
@@ -72,14 +73,20 @@ export async function createVerificationRun(c: Ctx, projectId: string, req: Veri
   if (!h.current_source_revision_id || !h.approved_scope_revision_id) throw new DomainError('scope_not_approved', 409);
 
   const one = async <T>(sql: string, p: unknown[]) => { const r = await c.db.query<T>(sql, p); if (!r[0]) throw new DomainError('not_found', 404); return r[0]; };
-  const mod = await one<{ tree_sha256: string; scope_revision_id: string }>('SELECT tree_sha256, scope_revision_id FROM module_revisions WHERE id=$1 AND org_id=$2 AND project_id=$3', [moduleId, c.orgId, projectId]);
+  const mod = await one<{ tree_sha256: string; scope_revision_id: string; target: string }>('SELECT tree_sha256, scope_revision_id, target FROM module_revisions WHERE id=$1 AND org_id=$2 AND project_id=$3', [moduleId, c.orgId, projectId]);
   const build = (await c.db.query<{ id: string; build_image_digest: string }>(`SELECT id, build_image_digest FROM build_results WHERE module_revision_id=$1 AND org_id=$2 AND status='succeeded' ORDER BY attempt DESC LIMIT 1`, [moduleId, c.orgId]))[0];
   if (!build) throw new DomainError('build_required', 409, 'The module has no successful build; verification would only produce "couldn\'t run" results.');
   const scope = await one<{ document_sha256: string }>('SELECT document_sha256 FROM scope_revisions WHERE id=$1 AND org_id=$2', [mod.scope_revision_id, c.orgId]);
   const src = await one<{ manifest_sha256: string }>('SELECT manifest_sha256 FROM source_revisions WHERE id=$1 AND org_id=$2', [h.current_source_revision_id, c.orgId]);
   const cs = await one<{ digest: string }>('SELECT digest FROM case_set_revisions WHERE id=$1 AND org_id=$2 AND project_id=$3', [caseSetId, c.orgId, projectId]);
   const pol = await one<{ digest: string }>('SELECT digest FROM comparison_policies WHERE id=$1 AND org_id=$2 AND project_id=$3', [policyId, c.orgId, projectId]);
-  const env = await one<{ image_digest: string }>("SELECT image_digest FROM execution_environments WHERE id=$1 AND role='replacement'", [req.environment_id]);
+  const env = await one<{ image_digest: string; name: string }>("SELECT image_digest, name FROM execution_environments WHERE id=$1 AND role='replacement'", [req.environment_id]);
+  const target = moduleLanguage(mod.target);
+  const environmentTarget = TARGET_IDS.find(id => targetEnvironment(id) === env.name);
+  if (!target || (environmentTarget && environmentTarget !== target)
+    || (target !== 'typescript' && (environmentTarget !== target || env.image_digest !== build.build_image_digest))) {
+    throw new DomainError('environment_target_mismatch', 409, 'Select the replacement environment for this module target.');
+  }
 
   const binding: BindingInput = {
     source: { id: h.current_source_revision_id, manifest_sha256: src.manifest_sha256 }, scope: { id: mod.scope_revision_id, sha256: scope.document_sha256 },

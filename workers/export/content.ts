@@ -38,19 +38,20 @@ export function unresolvedMarkdown(u: UnresolvedInput): string {
   return lines.join('\n');
 }
 
-export function readme(name: string, o: { includeOriginal: boolean; engine: string }): string {
+export function readme(name: string, o: { includeOriginal: boolean; engine: string; language?: string; docker?: boolean }): string {
   return `# ${name}: Legacy Bridge export
 
-Contents: a TypeScript module that replaces one workflow of a legacy executable, the test cases and references used to check it,
+Contents: a ${o.language ?? 'TypeScript'} module that replaces one workflow of a legacy executable, the test cases and references used to check it,
 the comparison policy, the verification results, and a harness that replays everything without the Legacy Bridge product.
 
-## Quick start (Node 22, no network needed)
+## Quick start (${o.docker ? 'Node 22 and Docker' : 'Node 22, no network needed'})
 
     node harness/verify-integrity.mjs        # every file matches SHA256SUMS
-    node harness/run-cases.mjs               # replays all cases; exits 0 only if outcomes equal results/verification-summary.json
+    node harness/run-cases.mjs${o.docker ? ' --docker' : ''}               # replays cases against the recorded outcomes
 
 Run \`run-cases.mjs\` from outside this folder, or pass \`--out /tmp/replay-report.json\`, so the report does not add a file to the package.
-The module is prebuilt in \`module/dist\`; its editable source is \`module/src\`. \`module/examples/basic.mjs\` calls \`run()\` directly.
+The module is prebuilt in \`module/dist\`; its editable source is \`module/src\`.
+${o.docker ? 'See `module/INTERFACE.md` for the reusable entry and run `sh bin/build.sh` from `module/` inside the matching SDK environment to rebuild.' : '`module/examples/basic.mjs` calls `run()` directly.'}
 
 ## What "Match" means
 

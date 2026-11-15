@@ -11,8 +11,9 @@ import { localBuild } from './build/local';
 import { CodexGenerator } from './generation/codex';
 import { RemoteCodexGenerator } from './generation/remote';
 import { z } from 'zod';
+import { TARGET_IDS, targetEnvironment } from '@lb/contracts';
 import { DockerOriginalRunner, DockerReplacementRunner } from './execution/runners';
-import { NODE_IMAGE } from './export/build';
+import { NODE_IMAGE, targetImage } from './build/toolchains';
 import { enqueue } from '../server/jobs/queue';
 import { defaultWorkerId, workerLoop } from './main';
 import type { WorkerEnv } from './runtime';
@@ -31,7 +32,10 @@ async function main() {
   const db = createPgDb();
   const store = new S3BlobStore(S3_BUCKET, { endpoint: process.env.S3_ENDPOINT || undefined, region: process.env.S3_REGION });
   await ensureEnvironment(db, { name: 'original-glibc', version: 1, role: 'original', image_digest: ORIGINAL_IMAGE, arch: 'x86-64', controls: CONTROLS });
-  await ensureEnvironment(db, { name: 'replacement-node22', version: 1, role: 'replacement', image_digest: NODE_IMAGE, arch: process.arch, controls: CONTROLS });
+  for (const target of TARGET_IDS) {
+    await ensureEnvironment(db, { name: targetEnvironment(target), version: 1, role: 'replacement', image_digest: targetImage(target),
+      arch: target === 'typescript' ? process.arch : 'x86-64', controls: CONTROLS });
+  }
   const workRoot = process.env.LB_WORK_ROOT ?? '/var/lib/lb/jobs';
   mkdirSync(workRoot, { recursive: true });
   const analysisImage = process.env.LB_ANALYSIS_IMAGE;
@@ -51,6 +55,7 @@ async function main() {
       : generationProvider === 'codex' ? new CodexGenerator({ binary: process.env.LB_CODEX_BIN || undefined, model })
       : undefined,
     build: localBuild,
+    buildDocker: { runtime: process.env.LB_RUNTIME || undefined },
   };
   let stop = false;
   for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stop = true; });

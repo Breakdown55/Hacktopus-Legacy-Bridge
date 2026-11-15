@@ -59,11 +59,11 @@ function spawnFailure(e: Error & { code?: string }, docker: string): number {
 }
 
 // ---------------- --docker ----------------
-export const dockerBuildArgs = (root: string, tag: string) => ['build', '-t', tag, '-f', join(root, 'environment/Dockerfile.replacement'), root];
+export const dockerBuildArgs = (root: string, tag: string, platform?: string) => ['build', ...(platform ? ['--platform', platform] : []), '-t', tag, '-f', join(root, 'environment/Dockerfile.replacement'), root];
 
 /** The container runs integrity first, then the host-mode replay; the report goes to the bind-mounted /out. */
-export function dockerRunArgs(a: { name: string; image: string; outDir: string }): string[] {
-  return ['run', '--rm', ...hardeningArgs({ name: a.name }), '-v', `${a.outDir}:/out`, a.image, 'sh', '-c',
+export function dockerRunArgs(a: { name: string; image: string; outDir: string; platform?: string }): string[] {
+  return ['run', '--rm', ...hardeningArgs({ name: a.name, platform: a.platform }), '-v', `${a.outDir}:/out`, a.image, 'sh', '-c',
     'node harness/verify-integrity.mjs && node harness/run-cases.mjs --out /out/replay-report.json'];
 }
 
@@ -74,14 +74,15 @@ export function replayInDocker(root: string, o: ReplayArgs, exec: Exec = default
   if (!from || !PINNED.test(from)) { err('Dockerfile.replacement must start from an image pinned by digest (FROM name@sha256:...)'); return EXIT.usage; }
 
   const tag = `lb-replay:${rand()}`;
-  const build = exec(o.docker, dockerBuildArgs(root, tag));
+  const platform = existsSync(join(root, 'environment/replacement-command.json')) ? 'linux/amd64' : undefined;
+  const build = exec(o.docker, dockerBuildArgs(root, tag, platform));
   if (build.error) return spawnFailure(build.error, o.docker);
   if (build.status !== 0) { err('docker build failed'); return EXIT.dockerFailed; }
 
   const outDir = mkdtempSync(join(tmpdir(), 'lb-replay-out-'));
   chmodSync(outDir, 0o777); // the container user is not the host user
   try {
-    const run = exec(o.docker, dockerRunArgs({ name: `lb-replay-${rand()}`, image: tag, outDir }));
+    const run = exec(o.docker, dockerRunArgs({ name: `lb-replay-${rand()}`, image: tag, outDir, platform }));
     if (run.error) return spawnFailure(run.error, o.docker);
     const failure = dockerFailure(run.status);
     if (failure) { err(failure.message); return failure.code; }

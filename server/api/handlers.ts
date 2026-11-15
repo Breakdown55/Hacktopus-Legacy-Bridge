@@ -9,7 +9,7 @@ import { createExport, getExport } from '../domain/exports';
 import { createModuleRevision, getModuleFiles } from '../domain/modules';
 import { createScopeRevision, decideScope, getHeads, putScopeDraft } from '../domain/projects';
 import { getScopeRevision, listScopeRevisions } from '../domain/scope';
-import { requestGeneration } from '../domain/generation';
+import { requestFunctionName, requestGeneration } from '../domain/generation';
 import { getActivity, getJob, getModule, getProject, getVerificationRun, listBuilds, listProjects, listResults, getResult } from '../domain/queries';
 import { completeUpload, createUpload, getSourceStatus, recordExecutionConsent, sealSourceRevision } from '../domain/sources';
 import { createVerificationRun } from '../domain/verification';
@@ -88,6 +88,8 @@ export const api = {
   }),
   findingGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await getFinding(ctx, params.fid) })),
   candidatesList: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await live(ctx, 'source_revisions', params.sid, () => listCandidates(ctx, params.sid)) })),
+  functionNameSuggest: route<P, { finding_id: string }>({ role: 'editor', idempotent: true, body: z.object({ finding_id: uuid }) }, async ({ ctx, params, body }) =>
+    ({ status: 202, body: await requestFunctionName(ctx, params.pid, body.finding_id) })),
   rawEvidenceGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => new Response(await getRawEvidence(ctx, params.rid, params.eid), {
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' },
   })),

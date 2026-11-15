@@ -11,12 +11,14 @@ import { exportHandler } from './handlers/export';
 import { nativeAnalysisHandler } from './handlers/native-analysis';
 import { generateHandler } from './handlers/generate';
 import { purgeHandler } from './handlers/purge';
+import { suggestFunctionNameHandler } from './handlers/suggest-function-name';
 
 export const HANDLERS: Record<string, JobHandler> = { purge: purgeHandler, inspect: inspectHandler, probe: probeHandler, build: buildHandler, capture: captureHandler, verify: verifyHandler, export: exportHandler };
 const NATIVE_HANDLERS: Record<string, JobHandler> = { native_index: nativeAnalysisHandler, native_deep_function: nativeAnalysisHandler };
 
 function handlersFor(env: WorkerEnv): Record<string, JobHandler> {
-  return { ...HANDLERS, ...(env.rea ? NATIVE_HANDLERS : {}), ...(env.generator ? { generate: generateHandler } : {}) };
+  return { ...HANDLERS, ...(env.rea ? NATIVE_HANDLERS : {}),
+    ...(env.generator ? { generate: generateHandler, suggest_function_name: suggestFunctionNameHandler } : {}) };
 }
 
 /** Runs one claimed job to a terminal or requeued state. Returns what happened. */

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { TARGET_LANGUAGES, targetOf } from '@lb/contracts';
 import Picker from './Picker';
 import { useProjects } from './ProjectProvider';
 import { downloadPlan, projectPath } from '@/lib/projects';
@@ -43,6 +44,7 @@ export default function ProjectHome() {
     const item: Project = {
       id: globalThis.crypto?.randomUUID?.() ?? 'project-' + Date.now(),
       name,
+      target_language: targetOf(String(data.get('target_language'))).id,
       description: String(data.get('description')).trim(),
       complete: 0,
       edited: Date.now(),
@@ -71,6 +73,11 @@ export default function ProjectHome() {
             <h2>New project</h2>
             <label className="field">Project name<input name="name" maxLength={80} required autoFocus /></label>
             <label className="field">Description<input name="description" maxLength={140} /></label>
+            <label className="field">Target language
+              <select name="target_language" defaultValue="typescript">
+                {TARGET_LANGUAGES.map(target => <option key={target.id} value={target.id}>{target.label}</option>)}
+              </select>
+            </label>
             <div className="actions">
               <button type="button" className="secondary" onClick={() => setDialogState(null)}>Cancel</button>
               <button className="primary">Create project</button>

@@ -68,16 +68,16 @@ export async function s1Local<T = void>(path: string, options?: Options): Promis
 
 export function post<T>(path: string, data?: unknown) { return s1<T>(path, { method: 'POST', data }); }
 
-export async function waitJob(id: string, signal: AbortSignal) {
+export async function waitJob<T = unknown>(id: string, signal: AbortSignal) {
   while (!signal.aborted) {
-    const job = await s1<{ status: string; error?: { code: string; reason?: string } | null }>(`/jobs/${id}`, { signal });
-    if (job.status === 'succeeded') return;
+    const job = await s1<{ status: string; progress: T; error?: { code: string; reason?: string } | null }>(`/jobs/${id}`, { signal });
+    if (job.status === 'succeeded') return job.progress;
     if (job.status === 'failed' || job.status === 'cancelled') {
       throw new Error('Job ' + job.status + (job.error?.code ? ' (' + job.error.code + ')' : '') + (job.error?.reason ? ': ' + job.error.reason : ''));
     }
     await new Promise(resolve => setTimeout(resolve, 1300));
   }
-  signal.throwIfAborted();
+  throw signal.reason;
 }
 
 /** Waits for a job whose failure should not stop the caller. Leaving the page still stops it: an aborted wait always throws. */

@@ -1,5 +1,6 @@
 'use client';
 
+import { targetOf } from '@lb/contracts';
 import { downloadFile } from '@/lib/projects';
 import { post, s1Blob, waitJob } from '@/lib/s1-client';
 import { useS1Project } from './ProjectShell';
@@ -28,7 +29,7 @@ export default function Export({ op }: { op: Operation }) {
   }
   return <section className="panel s1-panel s1-fields">
     <h2>Replayable package</h2>
-    <p>TypeScript, the compiled module, recorded references, test inputs, and the replay harness.</p>
+    <p>{targetOf(project.target_language).name} source, build output, recorded references, test inputs, and the replay harness.</p>
     {run?.summary && <p>{run.summary.match ?? 0} matched · {run.summary.difference ?? 0} differences · {run.summary.needs_reference ?? 0} need reference</p>}
     {pkg && <p role="status">Package: {pkg.status}</p>}
     <div className="s1-row">

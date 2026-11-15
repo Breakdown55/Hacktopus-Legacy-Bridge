@@ -50,8 +50,8 @@ export async function assertRevisionQuota(c: Ctx, totalBytes: number) {
   if (totalBytes > q.max_revision_bytes) throw quotaExceeded('max_revision_bytes', q.max_revision_bytes, totalBytes, `Revision exceeds ${Math.round(q.max_revision_bytes / 1048576)} MiB`);
 }
 
-export async function assertGenerationQuota(c: Ctx) {
+export async function assertGenerationQuota(c: Ctx, event = 'generation.requested') {
   const q = await effectiveQuota(c);
-  const n = (await c.db.query<{ n: number }>("SELECT count(*)::int AS n FROM events WHERE org_id=$1 AND type='generation.requested' AND created_at > now() - interval '1 day'", [c.orgId]))[0].n;
+  const n = (await c.db.query<{ n: number }>("SELECT count(*)::int AS n FROM events WHERE org_id=$1 AND type=$2 AND created_at > now() - interval '1 day'", [c.orgId, event]))[0].n;
   if (n >= q.max_generations_per_day) throw quotaExceeded('max_generations_per_day', q.max_generations_per_day, n, `Daily generation limit reached (${q.max_generations_per_day}).`);
 }

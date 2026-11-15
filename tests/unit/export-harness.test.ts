@@ -77,7 +77,11 @@ describe('--docker', () => {
   it('returns the replay result and copies the report out', () => {
     const d = pkg();
     const exec: Exec = (_c, args) => {
-      if (args[0] === 'run') { const v = args[args.indexOf('-v', args.indexOf('-v')) + 1]; writeFileSync(join(v.split(':')[0], 'replay-report.json'), '{"ok":false}'); return { status: 1, signal: null } as any; }
+      if (args[0] === 'run') {
+        const mount = args[args.indexOf('-v') + 1];
+        writeFileSync(join(mount.slice(0, -':/out'.length), 'replay-report.json'), '{"ok":false}');
+        return { status: 1, signal: null } as any;
+      }
       return { status: 0, signal: null } as any;
     };
     expect(replayInDocker(d, opts(d), exec)).toBe(1);
@@ -97,7 +101,7 @@ describe('--docker', () => {
     expect(replayInDocker(tmp(), opts(d), exec)).toBe(EXIT.usage);
   });
   it('builds the documented arguments', () => {
-    expect(dockerBuildArgs('/p', 't')).toEqual(['build', '-t', 't', '-f', '/p/environment/Dockerfile.replacement', '/p']);
+    expect(dockerBuildArgs('/p', 't')).toEqual(['build', '-t', 't', '-f', join('/p', 'environment/Dockerfile.replacement'), '/p']);
     expect(dockerRunArgs({ name: 'n', image: 'i', outDir: '/o' })).toEqual(expect.arrayContaining(['run', '--rm', '-v', '/o:/out', 'i', 'sh', '-c']));
   });
 });

@@ -43,7 +43,7 @@ export default function Modernize({ op }: { op: Operation }) {
   }, [open, current]);
 
   function upload() {
-    void op.run('Uploading and queuing the TypeScript build…', async () => {
+    void op.run('Uploading and queuing the ' + target.name + ' build…', async () => {
       await post('/projects/' + project.id + '/module-revisions', {
         origin: 'customer_upload', scope_revision_id: approved,
         files: await Promise.all(files.map(async file => ({ path: 'src/' + file.name, content: await file.text() }))),
@@ -53,7 +53,7 @@ export default function Modernize({ op }: { op: Operation }) {
     });
   }
   function generate(repair: boolean) {
-    void op.run(repair ? 'Asking the model to repair the current module…' : 'Generating TypeScript from the approved scope…', async signal => {
+    void op.run(repair ? 'Asking the model to repair the current module…' : 'Generating ' + target.name + ' from the approved scope…', async signal => {
       const job = await post<{ job_id: string }>('/projects/' + project.id + '/module-revisions', {
         origin: 'generated', scope_revision_id: approved, ...(repair && current ? { parent_id: current } : {}), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
       });
@@ -78,13 +78,12 @@ export default function Modernize({ op }: { op: Operation }) {
     <section className="panel s1-panel s1-fields">
       <h2>Generate from the approved scope</h2>
       <p className="hint">Packaging for: <strong>{target.label}</strong></p>
-      {!target.supported && <p role="alert">Packaging for {target.label} is not available yet. Only TypeScript modules can be generated, built and verified, so nothing can be produced for this project.</p>}
       {!approved && <p className="hint">Approve a scope on Select first.</p>}
       <p className="hint">Sends the approved scope and the cited evidence to the model provider. Your organization must allow this; otherwise upload or edit a module instead.</p>
       <label className="field">What should it focus on or fix (optional)<textarea rows={2} maxLength={2000} value={instructions} onChange={e => setInstructions(e.target.value)} disabled={op.busy} /></label>
       <div className="s1-row">
-        <button className="primary" type="button" disabled={op.busy || !approved || !target.supported} onClick={() => generate(false)}>Generate TypeScript</button>
-        <button className="secondary" type="button" disabled={op.busy || !approved || !current || !target.supported} onClick={() => generate(true)}>Repair current module</button>
+        <button className="primary" type="button" disabled={op.busy || !approved} onClick={() => generate(false)}>Generate {target.name}</button>
+        <button className="secondary" type="button" disabled={op.busy || !approved || !current} onClick={() => generate(true)}>Repair current module</button>
       </div>
     </section>
 
@@ -116,9 +115,9 @@ export default function Modernize({ op }: { op: Operation }) {
 
     <section className="panel s1-panel s1-fields">
       <h2>Upload your own module</h2>
-      <label className="field">Replacement TypeScript files<input type="file" accept=".ts" multiple disabled={op.busy} onChange={e => setFiles(Array.from(e.target.files ?? []))} /></label>
-      <p className="hint">Include index.ts with an exported run function.</p>
-      <button className="primary" type="button" onClick={upload} disabled={op.busy || !files.length || !approved || !target.supported}>Upload and build module</button>
+      <label className="field">Replacement {target.name} files<input type="file" accept={'.' + target.extension} multiple disabled={op.busy} onChange={e => setFiles(Array.from(e.target.files ?? []))} /></label>
+      <p className="hint">Required entry <code>{target.entry}</code> exports <code>{target.symbol}</code>.</p>
+      <button className="primary" type="button" onClick={upload} disabled={op.busy || !files.length || !approved}>Upload and build module</button>
     </section>
     <Continue stage={3} />
   </>;

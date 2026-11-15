@@ -18,6 +18,8 @@ Built with Next.js (App Router) and React. Run `npm ci`, then `npm run dev` and 
 
 ## S1 browser workflow
 
+For the Windows test instance and the Mac profile switch, see the [Windows TEST handoff](docs/README-windows-test-handoff.md).
+
 Use the S1 feature flag to run the actual backend from the five pages. This mode is for loopback development with a dedicated dev organization and user. It uses the built-in Linux x86-64 ELF inspector and a supplied TypeScript replacement.
 
 1. Start Docker and run `docker compose -f infra/docker-compose.yml up -d postgres s3`.
@@ -68,13 +70,23 @@ The default prototype also rejects files that are not ELF, PE or Mach-O on Impor
 
 ## S4: code generation and source edits
 
-On **Modernize**, **Generate TypeScript** asks a model to write a module from the approved scope and the findings it cites. **Repair current module** sends the current files and their build diagnostics back with optional instructions. Each result is a new numbered revision that builds automatically. You can also open any file, edit it, and **Save as new revision**, or upload your own files. A person's edit keeps the parent's list of untranslated items.
+When creating a project, choose **TypeScript**, **Python**, **Go**, **Java**, or **C#**. On **Modernize**, **Generate** uses the chosen language's public entry point, the approved scope, and the findings it cites. **Repair current module** sends the current files and their build diagnostics with optional instructions. Each result is a new numbered revision that builds automatically. You can edit files or upload your own replacement source in the selected language.
+
+| Target | Required source file | Packaged output |
+| --- | --- | --- |
+| TypeScript / Node.js 22 | `src/index.ts` | JavaScript and declarations |
+| Python 3.12 | `src/replacement.py` | Syntax-checked Python with a CLI launcher |
+| Go 1.24 | `src/replacement.go` | Go module source and a Linux amd64 CLI |
+| Java 21 | `src/Replacement.java` | JAR with a public replacement class |
+| C# / .NET 8 | `src/Replacement.cs` | .NET assembly and project files |
+
+The host needs the pinned Docker image for each target it builds. Pull the digests from [toolchains.ts](workers/build/toolchains.ts) with `docker pull --platform linux/amd64 <image>`. Python, Go, Java, and C# build in offline Docker containers. Verification uses the matching runtime. Exports include source, built files, and replay cases. For these four targets, replay with `node harness/run-cases.mjs --docker`. The existing TypeScript export also supports local Node replay.
 
 For two laptops, use the setup below. For single-machine development, set `LB_GENERATION_PROVIDER=codex` in the `npm run worker` shell and run `codex login` as the worker's OS user. Optionally set `LB_CODEX_BIN` to the CLI executable and `LB_GENERATION_MODEL` to a model available to that account. Without a model override, generation uses the CLI's built-in default. Codex uses its CLI login.
 
 Enable generation per organization with `UPDATE organizations SET external_model_allowed = true WHERE id = '<org>';`. The request returns 409 `external_model_not_allowed` until the setting is enabled. Scope, cited evidence, and any repair files and diagnostics are sent to Codex. The worker requires the provider setting to claim generation jobs.
 
-- **Output checks:** files must be `src/**` or `test/**` `.ts` files, import only `node:*` or relative paths, stay within the size limits, and include `src/index.ts`. Anything else fails the job with `generation_output_invalid` and creates no revision. The model does not write `package.json`, `tsconfig.json` or the CLI shim.
+- **Output checks:** files must be under `src/` or `test/`, use the chosen language's extension, stay within the size limits, and include the required entry file. Builds use standard libraries and trusted configuration. The worker supplies the build files and CLI launcher.
 - **Untranslated behavior:** the model lists what it could not translate and marks it with `LB-UNTRANSLATED:<id>`; it marks translated behaviors with `LB-BEHAVIOR:<id>`. The build compares markers, the list and the scope, and reports mismatches and unaddressed behaviors as warnings. Warnings never fail a build.
 - **Audit:** each revision records provider, configured model (or `cli-default`), template version, input and output digests, reported token usage, and a blob containing the request and structured response.
 - **Limits:** the worker configures the provider and model. Generate jobs get two attempts for transient failures, and cancellation interrupts the CLI. Direct callees of cited functions are outside the current evidence selection. A `generation_output_invalid` failure shows the validator's reason. `tsc` runs on the host in local development.
@@ -86,7 +98,7 @@ For a live smoke test using only synthetic data, start Docker with the pinned re
 
 For the implementation map, test results, and remaining deployment checks, see the [Codex handoff README](docs/README-codex-handoff.md).
 
-The hosting laptop runs Next.js, PostgreSQL, S3-compatible storage and the main worker. The processing laptop makes outbound HTTPS requests to the host, claims a leased job and runs its signed-in Codex CLI. For generation it receives the approved scope, selected evidence, and optional repair files, then returns structured TypeScript. The host validates, stores and builds the revision. PostgreSQL and object storage stay on the hosting side.
+The hosting laptop runs Next.js, PostgreSQL, S3-compatible storage and the main worker. The processing laptop makes outbound HTTPS requests to the host, claims a leased job and runs its signed-in Codex CLI. For generation it receives the approved scope, selected target, cited evidence, and optional repair files, then returns structured source files. The host validates, stores and builds the revision. PostgreSQL and object storage stay on the hosting side.
 
 1. On the **hosting laptop**, follow the database, storage and browser setup above. Set `LB_CODEX_ORG_ID` to your seeded organization's UUID for both the Next.js process and the main worker. Enable `external_model_allowed` on that organization. Set `LB_GENERATION_PROVIDER=codex-remote` in the main worker shell before `npm run worker`. The host needs no Codex login.
 2. Set a random `LB_CODEX_WORKER_KEY` of at least 32 characters on the host and the processing laptop. For the optional static analysis demo, set a different `LB_CODEX_DEMO_KEY` on the host and give that key to the browser user. Build and start the production site with `npm run build` and `npm start`, and proxy `/api/codex/generation` over HTTPS with a request body limit of at least 5 MiB. For generation from the full workflow UI, run the development site on the host's loopback and use it there or open `http://127.0.0.1:3110` after connecting with `ssh -L 3110:127.0.0.1:3100 user@host`. The full project workflow uses the loopback development UI until production user authentication is available.
@@ -104,7 +116,7 @@ $env:JAVA_HOME = 'C:/path/to/jdk'
 npm run worker:codex
 ```
 
-4. Open the full workflow on loopback, approve a scope on **Select**, then click **Generate TypeScript** on **Modernize**. The processing laptop claims the request and sends the result to the hosting laptop. In the optional static analysis demo, use **Analyze executable** on **Import** with a trusted PE or ELF (up to 16 MiB) and the demo key.
+4. Open the full workflow on loopback, approve a scope on **Select**, then click the selected language's **Generate** button on **Modernize**. The processing laptop claims the request and sends the result to the hosting laptop. In the optional static analysis demo, use **Analyze executable** on **Import** with a trusted PE or ELF (up to 16 MiB) and the demo key.
 
 Use this path for private, trusted demos. The worker performs static inspection and sends bounded REA evidence and project context to Codex using the worker account's allowance. The worker does not run the uploaded file or claim that any behavior passed runtime verification. The host retains the submitted artifact and job record; deleting a browser project removes its local data only.
 

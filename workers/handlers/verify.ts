@@ -1,11 +1,13 @@
-import { PolicyRules, type CaseInput, type Observation } from '@lb/contracts';
+import { PolicyRules, moduleLanguage, type CaseInput, type Observation } from '@lb/contracts';
+import { chmodSync } from 'node:fs';
+import { join } from 'node:path';
 import { judge } from '@lb/compare';
 import type { Job } from '../../server/jobs/queue';
 import { uuidv7 } from '../../server/db/ids';
 import type { CaseSetEntry } from '../../server/domain/cases';
 import { finalizeRun, recordResult } from '../../server/domain/verification';
 import { unpackTar } from '../../server/tar';
-import { CancelledError, writeTree, type JobControl, type WorkerEnv } from '../runtime';
+import { CancelledError, JobError, writeTree, type JobControl, type WorkerEnv } from '../runtime';
 import { jobDir, loadObservation, storeObservation, tmpIn, toCaseRun } from './common';
 import type { RunOutcome } from '../execution/harness';
 
@@ -19,10 +21,16 @@ export async function verifyHandler(env: WorkerEnv, job: Job, ctl: JobControl) {
   const run = (await env.db.query<{ project_id: string; build_result_id: string; case_set_revision_id: string; comparison_policy_id: string }>('SELECT project_id, build_result_id, case_set_revision_id, comparison_policy_id FROM verification_runs WHERE id=$1 AND org_id=$2', [runId, orgId]))[0];
   const entries = (await env.db.query<{ entries: CaseSetEntry[] }>('SELECT entries FROM case_set_revisions WHERE id=$1', [run.case_set_revision_id]))[0].entries;
   const policy = PolicyRules.parse((await env.db.query<{ rules: unknown }>('SELECT rules FROM comparison_policies WHERE id=$1', [run.comparison_policy_id]))[0].rules);
-  const outSha = (await env.db.query<{ output_blob_sha256: string }>('SELECT output_blob_sha256 FROM build_results WHERE id=$1', [run.build_result_id]))[0].output_blob_sha256;
+  const [built] = await env.db.query<{ output_blob_sha256: string; target: string; image_digest: string }>(
+    `SELECT b.output_blob_sha256,m.target,e.image_digest FROM build_results b JOIN module_revisions m ON m.id=b.module_revision_id
+      JOIN verification_runs v ON v.build_result_id=b.id JOIN execution_environments e ON e.id=v.replacement_env_id
+      WHERE v.id=$1 AND v.org_id=$2`, [runId, orgId]);
+  const target = built && moduleLanguage(built.target);
+  if (!target) throw new JobError('target_not_supported');
   const dir = jobDir(env, job.id);
   const moduleDir = tmpIn(dir, 'module-');
-  writeTree(moduleDir, unpackTar(await env.store.get(orgId, outSha)));
+  writeTree(moduleDir, unpackTar(await env.store.get(orgId, built.output_blob_sha256)));
+  if (target === 'go') chmodSync(join(moduleDir, 'dist/legacy-cli'), 0o755);
 
   const have = new Set((await env.db.query<{ test_case_id: string }>('SELECT test_case_id FROM verification_results WHERE verification_run_id=$1', [runId])).map((r) => r.test_case_id));
   let done = have.size, cancelled = false;
@@ -40,7 +48,8 @@ export async function verifyHandler(env: WorkerEnv, job: Job, ctl: JobControl) {
     const t0 = Date.now();
     let out: RunOutcome | null = null;
     let diag: Record<string, unknown> | null = null;
-    try { out = await env.replacement.run({ moduleDir, workdir: tmpIn(dir, 'w-'), case: await toCaseRun(env.store, orgId, tc.input) }); }
+    try { out = await env.replacement.run({ moduleDir, target, imageDigest: target === 'typescript' ? undefined : built.image_digest,
+      workdir: tmpIn(dir, 'w-'), case: await toCaseRun(env.store, orgId, tc.input) }); }
     catch (err) { diag = { phase: 'harness', reason: 'harness_error', message: String((err as Error).message).slice(0, 500) }; }
     const result = judge(policy, ref, out, diag ? String(diag.message) : undefined);
     const actual = out && !out.incomplete ? await storeObservation(env.db, env.store, orgId, out) : out ? out.data.observation : null;
