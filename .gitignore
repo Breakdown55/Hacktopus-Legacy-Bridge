@@ -33,6 +33,7 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+.env*
 
 # vercel
 .vercel
@@ -50,8 +51,5 @@ next-env.d.ts
 /fixtures/bin
 
 # graphify
-graphify-out/cache/
-graphify-out/cost.json
-graphify-out/.graphify_python
-graphify-out/.graphify_root
-.env*
+graphify-out/*
+
