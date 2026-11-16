@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { loadProjects, storageKey } from '@/lib/projects';
-import { s1Enabled } from '@/lib/s1-client';
 import type { Project } from '@/lib/types';
 
 type ProjectState = {
@@ -15,9 +14,6 @@ type ProjectState = {
 };
 
 const ProjectContext = createContext<ProjectState | null>(null);
-const configuredProfile = process.env.NEXT_PUBLIC_LB_MACHINE_PROFILE;
-const machineProfile = configuredProfile === 'PROD' || configuredProfile === 'TEST'
-  ? configuredProfile : s1Enabled ? 'TEST' : null;
 
 export function useProjects() {
   const state = useContext(ProjectContext);
@@ -68,7 +64,6 @@ export default function ProjectProvider({ children }: { children: ReactNode }) {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14h20M6 5v14M18 5v14M6 8c5 5 7 5 12 0" /></svg>
           Legacy Bridge
         </Link>
-        {machineProfile && <span className="machine-badge" data-profile={machineProfile}>{machineProfile}</span>}
       </header>
       <main id="app">{children}</main>
       <div className="toast" id="toast" role="status" hidden={!message}>{message}</div>

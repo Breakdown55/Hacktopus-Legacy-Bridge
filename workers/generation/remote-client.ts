@@ -22,8 +22,8 @@ export async function processRemoteGeneration(job: RemoteGenerationJob, generato
   }, 5_000);
   let reply: object;
   try {
-    const { files, untranslated, notes, usage } = await generator.generate(job.request, { signal });
-    const result = remoteResultSchema.safeParse({ files, untranslated, notes, usage });
+    const { files, untranslated, notes, usage, testCases } = await generator.generate(job.request, { signal });
+    const result = remoteResultSchema.safeParse({ files, untranslated, notes, usage, testCases });
     reply = result.success ? { action: 'complete', result: result.data }
       : { action: 'fail', error: 'generation_output_invalid' };
   } catch (error) {

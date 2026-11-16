@@ -1,6 +1,7 @@
 import type { Project } from './types';
 
-export const s1Enabled = process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_LB_S1_UI === '1';
+export const s1Enabled = process.env.NEXT_PUBLIC_LB_DEMO_MODE === '1'
+  || (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_LB_S1_UI === '1');
 
 type Identity = { orgId: string; userId: string };
 type Options = { method?: string; data?: unknown; body?: BodyInit; headers?: HeadersInit; signal?: AbortSignal };
@@ -10,6 +11,7 @@ export type S1Project = {
   description: string;
   target_language: string;
   created_at: string;
+  last_activity_at?: string;
   progress: { completed_steps: number; needs_input: { step: string; code: string }[] };
   heads: {
     current_source_revision_id: string | null;
@@ -22,7 +24,7 @@ export type S1Project = {
 
 export function pickerProject(value: S1Project): Project {
   return {
-    id: value.id, name: value.name, description: value.description, edited: Date.parse(value.created_at),
+    id: value.id, name: value.name, description: value.description, edited: Date.parse(value.last_activity_at ?? value.created_at),
     complete: value.progress.completed_steps, needs: value.progress.needs_input.length > 0,
     selected: [], features: [],
   };

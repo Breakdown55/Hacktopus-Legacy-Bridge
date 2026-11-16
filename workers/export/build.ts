@@ -13,6 +13,7 @@ import { TSCONFIG } from '../build/templates';
 import { NODE_IMAGE, targetCommand } from '../build/toolchains';
 import { RUN_CASES, VERIFY_INTEGRITY } from './templates';
 import { basicExample, dockerfileOriginal, normalizeUntranslated, readme, unresolvedMarkdown } from './content';
+import { moduleDocs } from './docs';
 import { zip } from './zip';
 
 export { NODE_IMAGE };
@@ -137,6 +138,8 @@ export async function buildExport(a: { db: Db; store: BlobStore; orgId: string; 
   if (a.includeOriginal) {
     for (const p of primary) if (['primary_executable', 'shared_library'].includes(p.role)) add(`original/${p.role === 'shared_library' ? 'lib' : 'bin'}/${p.path.split('/').pop()}`, await store.get(orgId, p.blob_sha256));
   }
+  add('docs.md', moduleDocs({ project: project.name, language: target.name, entry: target.entry, symbol: target.symbol, scope: scope.document, untranslated,
+    files: (await Promise.all(mod.file_manifest.map(async f => ({ path: f.path, content: (await store.get(orgId, f.sha256)).toString('utf8') })))) }));
   add('README.md', readme(project.name, { includeOriginal: a.includeOriginal, engine, language: target.name, docker: language !== 'typescript' }));
   if (language === 'typescript') add('module/examples/basic.mjs', basicExample(firstArgv));
 
@@ -162,6 +165,6 @@ export async function buildExport(a: { db: Db; store: BlobStore; orgId: string; 
   const sums = files.filter((f) => f.path !== 'SHA256SUMS').sort((x, y) => (x.path < y.path ? -1 : 1)).map((f) => `${sha(f.content)}  ${f.path}`).join('\n') + '\n';
   add('SHA256SUMS', sums);
   add('EXPORT_ID', `${a.exportId}\n${a.createdAt}\n`);
-  const archive = zip(files.map((f) => ({ path: `${rootName}/${f.path}`, content: f.content })));
+  const archive = zip(files.map((f) => ({ path: `${rootName}/${f.path}`, content: f.content })), new Date(a.createdAt));
   return { files, manifest, manifestSha: sha(canonical(manifest) + '\n'), sumsSha: sha(sums), zip: archive, rootName };
 }

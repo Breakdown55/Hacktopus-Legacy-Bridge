@@ -1,4 +1,6 @@
 import { DomainError } from '../../server/domain/errors';
+import { SuggestedTestCases } from '../../packages/contracts/src/generation-preview';
+import { safePath } from '../../server/domain/sources';
 import type { TargetLanguage } from '@lb/contracts';
 import { validateModuleFiles } from '../../server/domain/modules';
 import type { GenerationResult, Untranslated } from './provider';
@@ -19,6 +21,11 @@ export function validateGenerated(r: GenerationResult, behaviorIds: Set<string>,
     if (e instanceof DomainError) throw new GenerationOutputInvalid(`${e.code}: ${e.message}`.slice(0, 300));
     throw e;
   }
+  const cases = SuggestedTestCases.safeParse(r.testCases ?? []);
+  if (!cases.success || JSON.stringify(cases.data).length > 128 * 1024) throw new GenerationOutputInvalid('suggested tests exceed the input limits');
+  for (const item of cases.data) for (const file of item.files) {
+    try { safePath(file.path); } catch { throw new GenerationOutputInvalid('suggested test has an unsafe file path'); }
+  }
   const list = r.untranslated ?? [];
   if (!Array.isArray(list)) throw new GenerationOutputInvalid('untranslated must be an array');
   const seen = new Set<string>();
@@ -28,5 +35,5 @@ export function validateGenerated(r: GenerationResult, behaviorIds: Set<string>,
     if (typeof u.reason !== 'string' || !u.reason.trim()) throw new GenerationOutputInvalid(`untranslated ${u.id} needs a reason`);
     if (u.behaviorId !== undefined && !behaviorIds.has(u.behaviorId)) throw new GenerationOutputInvalid(`untranslated ${u.id} names an unknown behavior`);
   }
-  return list.map((u) => ({ id: u.id, behaviorId: u.behaviorId, file: String(u.file ?? ''), line: Number(u.line) || 0, reason: u.reason.slice(0, 1000), evidence: (u.evidence ?? []).filter((x) => typeof x === 'string').slice(0, 20) }));
+  return list.map((u) => ({ question: typeof u.question === 'string' ? u.question.slice(0, 500) : '', id: u.id, behaviorId: u.behaviorId, file: String(u.file ?? ''), line: Number(u.line) || 0, reason: u.reason.slice(0, 1000), evidence: (u.evidence ?? []).filter((x) => typeof x === 'string').slice(0, 20) }));
 }

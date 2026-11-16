@@ -27,7 +27,8 @@ export async function runJob(env: WorkerEnv, job: Job): Promise<string> {
   if (!handler) { await finish(env.db, job.id, env.workerId, { status: 'failed', error: { code: 'unknown_kind', kind: job.kind } }); return 'failed'; }
   const timer = setInterval(() => { void controlFor(env, job).checkpoint().catch(() => {}); }, 10_000);
   try {
-    if (await handler(env, job, controlFor(env, job)) === 'finalized') return 'succeeded';
+    const jobEnv = env.demo ? await env.demo(env, job) : env;
+    if (await handler(jobEnv, job, controlFor(env, job)) === 'finalized') return 'succeeded';
     return (await finish(env.db, job.id, env.workerId, { status: 'succeeded' })) ? 'succeeded' : 'lost';
   } catch (e) {
     if (e instanceof LeaseLostError) return 'lost'; // another worker owns it; our writes were idempotent no-ops

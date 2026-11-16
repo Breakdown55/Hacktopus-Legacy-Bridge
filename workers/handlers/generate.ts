@@ -5,6 +5,8 @@ import { DomainError } from '../../server/domain/errors';
 import { getHeads, getProjectTarget } from '../../server/domain/projects';
 import { createModuleRevision, getModuleFiles } from '../../server/domain/modules';
 import { putBlob } from '../../server/storage/blobs';
+import { generateIncrementally, featureStates } from '../generation/incremental';
+import { supplementalEvidence } from '../generation/supplemental-evidence';
 import { buildEvidence } from '../generation/evidence';
 import { generationTarget, PORTABLE_TEMPLATE_VERSION, TEMPLATE_VERSION, type GenerationRequest } from '../generation/provider';
 import { GenerationOutputInvalid, validateGenerated } from '../generation/validate';
@@ -14,7 +16,7 @@ import { JobError, LeaseLostError, RetryableError, orgCtx, type JobControl, type
 export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl) {
   const gen = env.generator;
   if (!gen) throw new JobError('generation_unavailable');
-  const p = job.payload as { scope_revision_id: string; parent_id: string | null; instructions: string; user_id: string | null };
+  const p = job.payload as { scope_revision_id: string; parent_id: string | null; instructions: string; incremental?: boolean; sample_input?: { name: string; text: string }; unknown_questions?: string[]; user_id: string | null };
   const projectId = job.project_id!;
   const ctx = orgCtx(env, job, p.user_id);
   // Re-check at run time: the setting or the approved head may have changed since the request.
@@ -33,6 +35,7 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
   if (!parsed.success) throw new JobError('scope_invalid');
   await ctl.checkpoint({ phase: 'collecting_evidence' });
   const evidence = await buildEvidence(env.db, env.store, job.org_id, scope.source_revision_id, scope.document);
+  evidence.push(...await supplementalEvidence(env.db, env.store, job.org_id, scope.source_revision_id, evidence));
   let priorRevision: GenerationRequest['priorRevision'];
   if (p.parent_id) {
     const files = await getModuleFiles(ctx, p.parent_id);
@@ -42,11 +45,11 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
   const request: GenerationRequest = {
     templateVersion: target.id === 'typescript' ? TEMPLATE_VERSION : PORTABLE_TEMPLATE_VERSION, scope: { id: p.scope_revision_id, sha256: scope.document_sha256, document: parsed.data }, evidence,
     target: generationTarget(target.id),
-    priorRevision, instructions: p.instructions || undefined,
+    priorRevision, instructions: p.instructions || undefined, sampleInput: p.sample_input, unansweredQuestions: p.unknown_questions ?? [],
   };
   await ctl.checkpoint({ phase: 'generating' });
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), 10 * 60_000);
+  const timer = setTimeout(() => abort.abort(), (p.incremental ? Math.min(30, Math.max(10, parsed.data.behaviors.length * 3)) : 10) * 60_000);
   let checking: Promise<void> | undefined;
   let interrupted: unknown;
   const heartbeat = setInterval(() => {
@@ -56,9 +59,12 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
   }, 5_000);
   let result;
   try {
-    result = await gen.generate(request, { signal: abort.signal, job });
+    result = p.incremental
+      ? await generateIncrementally(gen, request, { signal: abort.signal, job }, features => ctl.checkpoint({ phase: 'generating', features }))
+      : await gen.generate(request, { signal: abort.signal, job });
   } catch (error) {
     if (interrupted) throw interrupted;
+    if (error instanceof GenerationOutputInvalid) throw new JobError('generation_output_invalid', error.detail);
     await ctl.checkpoint();
     if (abort.signal.aborted) throw new RetryableError('generation timed out');
     throw error;
@@ -68,18 +74,26 @@ export async function generateHandler(env: WorkerEnv, job: Job, ctl: JobControl)
     await checking;
   }
   if (interrupted) throw interrupted;
-  await ctl.checkpoint({ phase: 'validating' });
+  await ctl.checkpoint({ phase: 'validating', features: featureStates(request, result) });
   let untranslated;
   try { untranslated = validateGenerated(result, new Set(parsed.data.behaviors.map((b) => b.id)), target.id); }
   catch (e) {
     if (e instanceof GenerationOutputInvalid) throw new JobError('generation_output_invalid', e.detail);
     throw e;
   }
+  // A skipped question cannot silently disappear during repair. Keep its recorded gap.
+  if (p.parent_id && p.unknown_questions?.length) {
+    const [prior] = await env.db.query<{ untranslated: typeof untranslated }>('SELECT untranslated FROM module_revisions WHERE id=$1 AND org_id=$2 AND project_id=$3', [p.parent_id, job.org_id, projectId]);
+    for (const gap of prior?.untranslated ?? []) {
+      if (p.unknown_questions.includes(gap.id) && !untranslated.some(u => u.id === gap.id)) untranslated.push(gap);
+    }
+  }
   const transcript = await putBlob(env.db, env.store, job.org_id, Buffer.from(JSON.stringify(result.transcript ?? null)), 'application/json');
   const d = gen.describe();
   const generator = {
     job_id: job.id, provider: d.provider, model: d.model, model_version: result.modelVersion ?? null, template_version: request.templateVersion,
-    params: { evidence_items: evidence.length, repair: !!p.parent_id }, input_digest: digest(request), output_digest: digest(result.files),
+    params: { evidence_items: evidence.length, repair: !!p.parent_id, incremental: !!p.incremental }, input_digest: digest(request), output_digest: digest(result.files),
+    test_cases: result.testCases ?? [], feature_states: featureStates(request, { ...result, untranslated }),
     transcript_blob: transcript.sha256, usage: result.usage, notes: result.notes.slice(0, 2000),
   };
   try {

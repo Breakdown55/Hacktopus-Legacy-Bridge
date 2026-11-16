@@ -5,6 +5,7 @@ import { useParams, usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { projectPath, stages } from '@/lib/projects';
 import { useProjects } from './ProjectProvider';
+import Sidebar from './Sidebar';
 
 export default function ProjectLayout({ children }: { children: ReactNode }) {
   const { id } = useParams<{ id: string }>();
@@ -16,16 +17,7 @@ export default function ProjectLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="shell">
-      <aside aria-label="Project sidebar">
-        <h2>Projects</h2>
-        <nav aria-label="Projects" className="project-nav">
-          {projects.map(p => (
-            <Link key={p.id} href={projectPath(p.id)} className={p.id === id ? 'selected' : undefined}
-              aria-current={p.id === id ? 'page' : undefined}>{p.name}</Link>
-          ))}
-        </nav>
-        <Link className="secondary nav-home" id="all-projects" href="/">All projects</Link>
-      </aside>
+      <Sidebar currentId={id} projects={projects.map(({ id, name }) => ({ id, name }))} />
       <div className="workflow">
         <nav className="stage-nav" aria-label="Workflow steps">
           {stages.map((label, i) => {

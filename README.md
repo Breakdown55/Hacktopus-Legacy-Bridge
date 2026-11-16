@@ -34,7 +34,7 @@ docker pull node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24d
 4. Start `npm run worker` with `LB_SANDBOX=direct`. On Windows, set `LB_WORK_ROOT` to an absolute writable directory. The existing worker runs TypeScript compilation locally and runs originals and replacements in Docker.
 5. Run `npm run dev -- --hostname 127.0.0.1 --port 3100` and open http://127.0.0.1:3100. Keep this dev mode on loopback.
 
-For the sample, build `fixtures/bin/wordfreq` with `npm run fixtures`. Create a project, upload `wordfreq`, and run **Probe original** after granting consent. Approve the scope on Select. Upload `fixtures/replacements/wordfreq-v1/src/index.ts` on Modernize. On Verify, choose **Load wordfreq cases**, **Save cases**, **Capture original outputs**, and **Run verification** in that order. On Export, choose **Build export** and **Download ZIP**. Unpack it and run `node harness/verify-integrity.mjs` and `node harness/run-cases.mjs` from its package directory.
+For the sample, build `fixtures/bin/wordfreq` with `npm run fixtures`. Create a project, upload `wordfreq`, and run **Probe original** after granting consent. Approve the scope on Select. Upload `fixtures/replacements/wordfreq-v1/src/index.ts` on Modernize. On Verify, tests load automatically. Choose **Check replacement** to capture any missing original results and then compare the replacement. Capture failures are explained before comparison starts. **Capture original results** remains available to recapture explicitly. **Download tests** saves the inputs, including any input files, as a portable JSON file. On Export, choose **Build export** and **Download ZIP**. Unpack it and run `node harness/verify-integrity.mjs` and `node harness/run-cases.mjs` from its package directory.
 
 ## S2 executable evidence
 
@@ -70,7 +70,7 @@ The default prototype also rejects files that are not ELF, PE or Mach-O on Impor
 
 ## S4: code generation and source edits
 
-When creating a project, choose **TypeScript**, **Python**, **Go**, **Java**, or **C#**. On **Modernize**, **Generate** uses the chosen language's public entry point, the approved scope, and the findings it cites. **Repair current module** sends the current files and their build diagnostics with optional instructions. Each result is a new numbered revision that builds automatically. You can edit files or upload your own replacement source in the selected language.
+When creating a project, choose **TypeScript**, **Python**, **Go**, **Java**, or **C#**. On **Modernize**, **Generate** uses the chosen language's public entry point, the approved scope, and the findings it cites. **Repair current module** sends the current files and their build diagnostics with optional instructions. Each result is a new numbered revision that builds automatically. Download the current code package and browse its function list. Generation first checks referenced ELF constants and small uploaded supporting text files. Questions ask for examples users may have; they do not require knowledge of internal variables. Attach an optional text input example (up to 32 KB), answer directly if you know the format, or choose **I don’t know** and continue to Verify. Skipped behaviors remain unresolved when updating. Choose **Update replacement** to use your answers and example in a new version. Technical notes are available under **More context** and **Build details**. The page lists selected features before generation. Browser generation proceeds through those features sequentially: grey means waiting, yellow with a spinner means generating, green means generated, and yellow without a spinner means unresolved. Green indicates generation only; Verify checks behavior.
 
 | Target | Required source file | Packaged output |
 | --- | --- | --- |
@@ -93,6 +93,8 @@ Enable generation per organization with `UPDATE organizations SET external_model
 - **Generate API:** `POST /api/v1/projects/{id}/module-revisions` with `origin: "generated"` returns 202 and a job id; the worker creates the revision.
 
 For a live smoke test using only synthetic data, start Docker with the pinned replacement image from the S1 setup, set `LB_TEST_LIVE_CODEX=1`, and run `npm test -- tests/api/generation.test.ts`. The test starts a separate processing worker and routes a request through the host endpoint over loopback HTTP.
+
+Generated replacements now include suggested test inputs from the approved scope and evidence. Verify saves them automatically and keeps existing tests. These suggestions never supply expected outputs: capture those from the original. Older wordfreq projects use the sample cases; other older or uploaded replacements without tests start with a clearly labeled no-input check. Generate an updated replacement for broader suggested coverage. Restart the generation worker after upgrading to use the new questions and test suggestions.
 
 ## Private demo on two laptops
 

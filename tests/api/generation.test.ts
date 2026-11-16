@@ -127,6 +127,7 @@ describe('S4 generation', () => {
 
   it('rejects invalid model output and creates no revision', async () => {
     const bad: [string, GenerationResult][] = [
+      ['unsafe suggested input', result({ testCases: [{ name: 'unsafe', argv: [], stdin: '', files: [{ path: '../escape', text: 'x' }] }] })],
       ['traversal', result({ files: [{ path: 'src/../../etc/x.ts', content: 'x' }] })],
       ['outside src and test', result({ files: [{ path: 'src/index.ts', content: GOOD }, { path: 'package.json', content: '{}' }] })],
       ['third-party import', result({ files: [{ path: 'src/index.ts', content: "import _ from 'lodash';\n" + GOOD }] })],
@@ -146,7 +147,7 @@ describe('S4 generation', () => {
 
   it('records provider, model, digests and transcript, passes cited evidence, and builds with marker warnings', async () => {
     requests.length = 0;
-    next = () => result();
+    next = () => result({ testCases: [{ name: 'Three words', argv: [], stdin: 'one two three', files: [{ path: 'example.txt', text: 'sample' }] }] });
     expect((await generate()).status).toBe(202);
     await drain(env, ['generate']);
     const [m] = await modules();
@@ -167,6 +168,29 @@ describe('S4 generation', () => {
     expect(mod.build.diagnostics).toEqual([expect.objectContaining({ code: 'LB_UNADDRESSED_BEHAVIOR', severity: 'warning', message: expect.stringContaining('other') })]);
   });
 
+  it('loads suggested inputs once, downloads portable cases and packages the built replacement', async () => {
+    const first = await call(api.testCasePrepare, 'POST', '/tests', { params: { pid } });
+    expect(first).toMatchObject({ status: 200, json: { count: 1, basic: false } });
+    expect((await call(api.testCasePrepare, 'POST', '/tests', { params: { pid } })).json.count).toBe(1);
+    const cases = await call(api.testCaseDownload, 'GET', '/tests', { params: { pid } });
+    expect(cases.json).toHaveLength(1);
+    expect(cases.json[0]).toMatchObject({ name: 'Three words', input: { stdin: { base64: Buffer.from('one two three').toString('base64') }, files: [{ path: 'example.txt', base64: Buffer.from('sample').toString('base64') }] } });
+    expect(await db.query('SELECT 1 FROM reference_outputs WHERE org_id=$1', [org])).toHaveLength(0);
+    const [mod] = await modules();
+    const preview = await call(api.modulePackage, 'GET', '/package?preview=1', { params: { mid: mod.id } });
+    expect(preview.json.functions).toContainEqual({ name: 'run', path: 'src/index.ts' });
+    const response = await api.modulePackage(new Request('http://t/package', { headers: { 'x-org-id': org, 'x-user-id': editor } }), { params: Promise.resolve({ mid: mod.id }) });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/zip');
+    const archive = Buffer.from(await response.arrayBuffer());
+    expect(archive.readUInt32LE(0)).toBe(0x04034b50);
+    for (const path of ['src/index.ts', 'dist/index.js', 'bin/cli.mjs', 'package.json', 'tsconfig.json']) expect(archive.includes(Buffer.from(path)), path).toBe(true);
+    const who = { org: other, user: otherUser };
+    expect((await call(api.testCasePrepare, 'POST', '/tests', { params: { pid }, who })).status).toBe(404);
+    expect((await call(api.testCaseDownload, 'GET', '/tests', { params: { pid }, who })).status).toBe(404);
+    expect((await call(api.modulePackage, 'GET', '/package', { params: { mid: mod.id }, who })).status).toBe(404);
+  });
+
   it('a retried job does not create a second revision', async () => {
     const job = (await db.query<any>("SELECT * FROM jobs WHERE kind='generate' AND status='succeeded' ORDER BY created_at DESC LIMIT 1"))[0];
     await generateHandler(env, { ...job, payload: job.payload }, controlFor(env, job));
@@ -176,13 +200,15 @@ describe('S4 generation', () => {
   it('repair is a new request from persisted state: prior files and build diagnostics, as revision N+1', async () => {
     const [m1] = await modules();
     requests.length = 0;
-    next = () => result({ files: [{ path: 'src/index.ts', content: GOOD + '// fixed\n' }] });
-    expect((await generate({ parent_id: m1.id, instructions: 'handle empty input' })).status).toBe(202);
+    next = () => result({ files: [{ path: 'src/index.ts', content: GOOD + '// fixed\n' }], untranslated: [] });
+    expect((await generate({ parent_id: m1.id, instructions: 'handle empty input', unknown_questions: ['overflow'], sample_input: { name: 'example.txt', text: 'a b c' } })).status).toBe(202);
     await drain(env, ['generate']);
     expect(requests[0].priorRevision).toMatchObject({ id: m1.id, files: [{ path: 'src/index.ts' }], buildDiagnostics: [{ code: 'LB_UNADDRESSED_BEHAVIOR' }] });
     expect(requests[0].instructions).toBe('handle empty input');
+    expect(requests[0].sampleInput).toEqual({ name: 'example.txt', text: 'a b c' });
     const all = await modules();
     expect(all.map((x) => [x.number, x.parent_id])).toEqual([[1, null], [2, m1.id]]);
+    expect(all[1].untranslated).toMatchObject([{ id: 'overflow' }]);
   });
 
   it('a user edit creates revision N+1, inherits the untranslated list and builds automatically', async () => {

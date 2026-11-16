@@ -19,6 +19,8 @@ export interface WorkerEnv {
   generator?: CodeGenerator;
   build: (files: { path: string; content: Buffer }[]) => Promise<BuildOutput>;
   buildDocker?: DockerOpts;
+  /** Development-only demo replay (workers/demo): may swap the analysis runner or generator for one job. */
+  demo?: (env: WorkerEnv, job: Job) => Promise<WorkerEnv>;
 }
 export class CancelledError extends Error { constructor() { super('cancelled'); } }
 export class LeaseLostError extends Error { constructor() { super('lease lost'); } }

@@ -1,3 +1,4 @@
+import { moduleFunctions, simpleQuestion } from '../../lib/module-preview';
 import { describe, expect, it } from 'vitest';
 import { detectExecutable } from '../../lib/executable';
 import { approvalBlockers, emptyScope, openQuestions, prune, type Scope } from '../../lib/scope-doc';
@@ -43,5 +44,26 @@ describe('scope document helpers', () => {
   it('counts only unresolved questions', () => {
     const doc: Scope = { ...emptyScope('w'), open_questions: [{ id: '1', text: 'a', status: 'open', resolution: null }, { id: '2', text: 'b', status: 'resolved', resolution: 'x' }] };
     expect(openQuestions(doc)).toHaveLength(1);
+  });
+});
+
+
+describe('replacement preview', () => {
+  it('lists named functions for all targets without counting comments or example strings', () => {
+    const files = [
+      { path: 'src/index.ts', content: 'export async function run() {}\nconst count = (x: string) => x.length;\n// function fake() {}\nconst text = "function fakeToo() {}";' },
+      { path: 'src/replacement.py', content: 'def run(args):\n  pass\n# def fake():' },
+      { path: 'src/replacement.go', content: 'func Run(args []string) int { return 0 }' },
+      { path: 'src/Replacement.java', content: 'public static int run(String[] args) throws Exception { return 0; }' },
+      { path: 'src/Replacement.cs', content: 'public static int Run(string[] args) { return 0; }' },
+    ];
+    expect(moduleFunctions(files).map(f => f.name)).toEqual(['run', 'count', 'run', 'Run', 'run', 'Run']);
+  });
+  it('uses the model’s simple question and offers a readable fallback for existing code', () => {
+    expect(simpleQuestion('int32 wraparound', 'What should happen for a very large total?')).toBe('What should happen for a very large total?');
+    expect(simpleQuestion('Original wraps at 2^31')).toContain('very large number');
+    expect(simpleQuestion('The opcode names are missing')).toContain('example input file');
+    expect(simpleQuestion('No encoding for non-ASCII bytes')).toContain('special characters');
+    expect(simpleQuestion('Missing record codes', 'What two letters at the start of a record mean that an account should be opened?')).toContain('example input file');
   });
 });

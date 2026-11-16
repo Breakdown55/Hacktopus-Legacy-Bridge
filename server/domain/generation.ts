@@ -4,7 +4,7 @@ import { DomainError } from './errors';
 import { assertGenerationQuota } from './quotas';
 import { assertScopeApproved, getHeads } from './projects';
 
-export interface GenerationInput { scope_revision_id: string; parent_id?: string | null; instructions?: string }
+export interface GenerationInput { scope_revision_id: string; parent_id?: string | null; instructions?: string; incremental?: boolean; sample_input?: { name: string; text: string }; unknown_questions?: string[] }
 
 export async function functionNamingSource(c: Ctx, projectId: string, findingId: string) {
   const heads = await getHeads(c.db, c.orgId, projectId);
@@ -21,6 +21,10 @@ export async function functionNamingSource(c: Ctx, projectId: string, findingId:
 
 export async function requestFunctionName(c: Ctx, projectId: string, findingId: string) {
   await functionNamingSource(c, projectId, findingId);
+  const [completed] = await c.db.query<{ id: string }>(
+    "SELECT id FROM jobs WHERE org_id=$1 AND project_id=$2 AND subject_id=$3 AND kind='suggest_function_name' AND status='succeeded' ORDER BY finished_at DESC LIMIT 1",
+    [c.orgId, projectId, findingId]);
+  if (completed) return { job_id: completed.id };
   await assertGenerationQuota(c, 'function_name.requested');
   const job = await c.db.tx(async t => {
     const j = await enqueue(t, {
@@ -52,7 +56,7 @@ export async function requestGeneration(c: Ctx, projectId: string, i: Generation
     if (!p.length) throw new DomainError('not_found', 404, 'module revision');
   }
   const job = await c.db.tx(async (t) => {
-    const j = await enqueue(t, { orgId: c.orgId, projectId, kind: 'generate', subjectType: 'scope_revision', subjectId: i.scope_revision_id, payload: { scope_revision_id: i.scope_revision_id, parent_id: i.parent_id ?? null, instructions: i.instructions ?? '', user_id: c.userId }, dedupeKey: `generate:${i.scope_revision_id}:${i.parent_id ?? 'new'}`, maxAttempts: 2 });
+    const j = await enqueue(t, { orgId: c.orgId, projectId, kind: 'generate', subjectType: 'scope_revision', subjectId: i.scope_revision_id, payload: { scope_revision_id: i.scope_revision_id, parent_id: i.parent_id ?? null, instructions: i.instructions ?? '', incremental: i.incremental ?? false, sample_input: i.sample_input, unknown_questions: i.unknown_questions ?? [], user_id: c.userId }, dedupeKey: `generate:${i.scope_revision_id}:${i.parent_id ?? 'new'}`, maxAttempts: 2 });
     await t.query(`INSERT INTO events(org_id,project_id,actor_id,type,subject_type,subject_id) VALUES ($1,$2,$3,'generation.requested','scope_revision',$4)`, [c.orgId, projectId, c.userId, i.scope_revision_id]);
     return j;
   });

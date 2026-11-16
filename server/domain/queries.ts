@@ -50,8 +50,26 @@ export async function getProgress(c: Ctx, projectId: string) {
   return { stage: ['import', 'select', 'modernize', 'verify', 'export'][Math.min(done, 4)], completed_steps: done, needs_input: needs };
 }
 
+/**
+ * When someone last changed a project: the newest of its creation and anything a person added to it (an upload, an edit to the
+ * selection, a module, a test case they wrote, a policy, a verification or an export, or an action recorded in the activity log).
+ * Work the system does by itself (analysis, naming on page load, template cases) does not count.
+ */
+const LAST_ACTIVITY = `GREATEST(p.created_at, COALESCE((SELECT max(t) FROM (
+  SELECT created_at AS t FROM source_revisions WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT updated_at FROM scope_drafts WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT created_at FROM scope_revisions WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT created_at FROM module_revisions WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT created_at FROM test_cases WHERE org_id=p.org_id AND project_id=p.id AND origin <> 'template'
+  UNION ALL SELECT created_at FROM case_set_revisions WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT created_at FROM comparison_policies WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT created_at FROM verification_runs WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT created_at FROM export_packages WHERE org_id=p.org_id AND project_id=p.id
+  UNION ALL SELECT created_at FROM events WHERE org_id=p.org_id AND project_id=p.id AND actor_id IS NOT NULL AND type <> 'function_name.requested'
+) x), p.created_at))`;
+
 export async function getProject(c: Ctx, projectId: string) {
-  const p = (await c.db.query<{ id: string; name: string; description: string; objectives: string; created_at: string; target_language: string }>('SELECT id, name, description, objectives, created_at, target_language FROM projects WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL', [projectId, c.orgId]))[0];
+  const p = (await c.db.query<{ id: string; name: string; description: string; objectives: string; created_at: string; target_language: string; last_activity_at: string }>(`SELECT p.id, p.name, p.description, p.objectives, p.created_at, p.target_language, ${LAST_ACTIVITY} AS last_activity_at FROM projects p WHERE p.id=$1 AND p.org_id=$2 AND p.deleted_at IS NULL`, [projectId, c.orgId]))[0];
   if (!p) throw new DomainError('not_found', 404);
   const heads = await getHeads(c.db, c.orgId, projectId);
   return { ...p, progress: await getProgress(c, projectId), heads };
@@ -59,11 +77,13 @@ export async function getProject(c: Ctx, projectId: string) {
 
 export async function listProjects(c: Ctx, limit: number, cursor: string | null) {
   const cur = decodeCursor(cursor);
-  const rows = await c.db.query<{ id: string; created_at: string }>(
-    `SELECT id, created_at FROM projects WHERE org_id=$1 AND deleted_at IS NULL AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid)) ORDER BY created_at DESC, id DESC LIMIT $4`,
+  // Most recently changed first. The cursor carries the activity time as text so no precision is lost between pages.
+  const rows = await c.db.query<{ id: string; activity: string }>(
+    `SELECT id, activity FROM (SELECT p.id, ${LAST_ACTIVITY} AS at, (${LAST_ACTIVITY})::text AS activity FROM projects p WHERE p.org_id=$1 AND p.deleted_at IS NULL) s
+     WHERE ($2::timestamptz IS NULL OR (at, id) < ($2::timestamptz, $3::uuid)) ORDER BY at DESC, id DESC LIMIT $4`,
     [c.orgId, cur?.[0] ?? null, cur?.[1] ?? null, limit + 1]);
   const page = rows.slice(0, limit);
-  return { items: await Promise.all(page.map((r) => getProject(c, r.id))), next_cursor: rows.length > limit ? encodeCursor(page[limit - 1].created_at, page[limit - 1].id) : null };
+  return { items: await Promise.all(page.map((r) => getProject(c, r.id))), next_cursor: rows.length > limit ? encodeCursor(page[limit - 1].activity, page[limit - 1].id) : null };
 }
 
 export async function getJob(c: Ctx, jobId: string) {

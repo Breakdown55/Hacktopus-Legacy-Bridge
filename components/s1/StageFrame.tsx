@@ -6,6 +6,9 @@ import { projectPath, stages } from '@/lib/projects';
 import { s1 } from '@/lib/s1-client';
 import { useS1Project } from './ProjectShell';
 
+/** The small spinning circle used wherever something is being processed. */
+export function Spinner() { return <span className="feature-indicator spinning inline-spinner" aria-hidden="true" />; }
+
 export type SourceStatus = { eligibility: { analysis: { status: string }; execution: { status: string; reasons: string[] } }; inspection: { format: string; arch: string; needed: string[] } | null };
 export type Operation = ReturnType<typeof useOperation>;
 
@@ -58,9 +61,11 @@ export function useResource<T>(path: string | null, changing = false) {
   return { data: entry?.path === path ? entry?.data ?? null : null, error: failure?.path === path ? failure?.message : null };
 }
 
-export function Continue({ stage, children }: { stage: number; children?: ReactNode }) {
+/** The link to the next step. While `disabled` (analysis or generation is still running) it is a greyed-out button with a reason. */
+export function Continue({ stage, children, disabled }: { stage: number; children?: ReactNode; disabled?: boolean }) {
   const { project } = useS1Project();
   if (project.progress.completed_steps < stage) return null;
+  if (disabled) return <div className="actions"><button type="button" className="primary" disabled title="Wait for the current work to finish">{children ?? 'Continue to ' + stages[stage]}</button></div>;
   return <div className="actions"><Link className="primary s1-link" href={projectPath(project.id, stage)}>{children ?? 'Continue to ' + stages[stage]}</Link></div>;
 }
 
@@ -75,6 +80,6 @@ export default function S1Stage({ stage, View }: { stage: number; View: Componen
   return <section className="workspace">
     <h1>{stages[stage]}</h1>
     <View op={op} />
-    {op.message && <p className="notice" role={op.failed ? 'alert' : 'status'}>{op.message}</p>}
+    {op.message && <p className="notice" role={op.failed ? 'alert' : 'status'}>{op.busy && <Spinner />}{op.message}</p>}
   </section>;
 }

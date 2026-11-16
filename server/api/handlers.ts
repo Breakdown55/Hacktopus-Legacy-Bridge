@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { modulePackage } from '../domain/module-package';
+import { prepareTestCases, downloadTestCases } from '../domain/starter-cases';
 import { ScopeDocV1, TARGET_IDS } from '@lb/contracts';
 import { uuidv7 } from '../db/ids';
 import { FINDING_KINDS, getFinding, getRawEvidence, listCandidates, listFindings, listNativeRuns, queueNativeAnalysis } from '../domain/analysis';
@@ -113,10 +115,13 @@ export const api = {
   scopeRevisionCreate: route<P, { from_draft_version: number }>({ role: 'editor', idempotent: true, body: z.object({ from_draft_version: z.number().int().min(1) }) }, async ({ ctx, params, body }) => ({ status: 201, body: await createScopeRevision(ctx.db, ctx.orgId, params.pid, body.from_draft_version, ctx.userId) })),
   scopeDecision: route<P, { decision: 'approved' | 'rejected'; document_sha256: string; comment?: string }>({ role: 'editor', body: z.object({ decision: z.enum(['approved', 'rejected']), document_sha256: sha, comment: z.string().max(2000).optional() }) }, async ({ ctx, params, body }) => ({ body: await decideScope(ctx.db, ctx.orgId, await projectOf(ctx, 'scope_revisions', params.rid), params.rid, body.decision, body.document_sha256, ctx.userId!, body.comment) })),
 
-  moduleCreate: route<P, any>({ role: 'editor', idempotent: true, body: z.object({ origin: z.enum(['user_edit', 'customer_upload', 'generated']), instructions: z.string().max(2000).optional(), scope_revision_id: uuid, parent_id: uuid.nullable().optional(), make_current: z.boolean().optional(), files: z.array(z.object({ path: z.string(), content: z.string() })).optional(), changes: z.array(z.object({ path: z.string(), content: z.string().optional(), delete: z.boolean().optional() })).optional() }) }, async ({ ctx, params, body }) => body.origin === 'generated'
+  moduleCreate: route<P, any>({ role: 'editor', idempotent: true, body: z.object({ origin: z.enum(['user_edit', 'customer_upload', 'generated']), instructions: z.string().max(2000).optional(), incremental: z.boolean().optional(), sample_input: z.object({ name: z.string().max(200), text: z.string().max(32000) }).optional(), unknown_questions: z.array(z.string().regex(/^[\w.-]{1,64}$/)).max(50).optional(), scope_revision_id: uuid, parent_id: uuid.nullable().optional(), make_current: z.boolean().optional(), files: z.array(z.object({ path: z.string(), content: z.string() })).optional(), changes: z.array(z.object({ path: z.string(), content: z.string().optional(), delete: z.boolean().optional() })).optional() }) }, async ({ ctx, params, body }) => body.origin === 'generated'
     // Generation is a job: the worker creates the revision and then enqueues its build.
-    ? { status: 202, body: await requestGeneration(ctx, params.pid, { scope_revision_id: body.scope_revision_id, parent_id: body.parent_id, instructions: body.instructions }) }
+    ? { status: 202, body: await requestGeneration(ctx, params.pid, { scope_revision_id: body.scope_revision_id, parent_id: body.parent_id, instructions: body.instructions, incremental: body.incremental, sample_input: body.sample_input, unknown_questions: body.unknown_questions }) }
     : { status: 201, body: await createModuleRevision(ctx, params.pid, body) }),
+  modulePackage: route<P>({ role: 'viewer' }, async ({ ctx, params, url }) => modulePackage(ctx, params.mid, url.searchParams.get('preview') === '1')),
+  testCasePrepare: route<P>({ role: 'editor', idempotent: true }, async ({ ctx, params }) => ({ body: await prepareTestCases(ctx, params.pid) })),
+  testCaseDownload: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await downloadTestCases(ctx, params.pid) })),
   moduleGet: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await live(ctx, 'module_revisions', params.mid, () => getModule(ctx, params.mid)) })),
   moduleBuilds: route<P>({ role: 'viewer' }, async ({ ctx, params }) => ({ body: await live(ctx, 'module_revisions', params.mid, () => listBuilds(ctx, params.mid)) })),
   moduleFile: route<P>({ role: 'viewer' }, async ({ ctx, params, url }) => {

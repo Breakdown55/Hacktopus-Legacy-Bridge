@@ -9,6 +9,7 @@ export const QUOTA_DEFAULTS = {
   max_storage_bytes: 20 * 1024 ** 3,
   max_cases_per_set: 500,
   max_generations_per_day: 50,
+  max_function_names_per_day: 1000,
 } as const;
 export type QuotaName = keyof typeof QUOTA_DEFAULTS;
 
@@ -53,5 +54,6 @@ export async function assertRevisionQuota(c: Ctx, totalBytes: number) {
 export async function assertGenerationQuota(c: Ctx, event = 'generation.requested') {
   const q = await effectiveQuota(c);
   const n = (await c.db.query<{ n: number }>("SELECT count(*)::int AS n FROM events WHERE org_id=$1 AND type=$2 AND created_at > now() - interval '1 day'", [c.orgId, event]))[0].n;
-  if (n >= q.max_generations_per_day) throw quotaExceeded('max_generations_per_day', q.max_generations_per_day, n, `Daily generation limit reached (${q.max_generations_per_day}).`);
+  const key = event === 'function_name.requested' ? 'max_function_names_per_day' : 'max_generations_per_day';
+  if (n >= q[key]) throw quotaExceeded(key, q[key], n, `Daily ${event === 'function_name.requested' ? 'function naming' : 'generation'} limit reached (${q[key]}).`);
 }

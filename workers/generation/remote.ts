@@ -24,7 +24,7 @@ export class RemoteCodexGenerator implements CodeGenerator {
     const remote = await enqueue(db, {
       orgId, projectId: job.project_id, kind: remoteGenerationKind, subjectType: 'job', subjectId: job.id,
       payload: { input: prompt.sha256, parentAttempt: job.attempt, model }, maxAttempts: 1,
-      dedupeKey: `${remoteGenerationKind}:${job.id}:${job.attempt}`,
+      dedupeKey: `${remoteGenerationKind}:${job.id}:${job.attempt}${request.activeBehaviorId ? ":" + request.activeBehaviorId : ""}`,
     });
     try {
       for (;;) {

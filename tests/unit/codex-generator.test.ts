@@ -41,11 +41,13 @@ describe('CodexGenerator', () => {
         expect(args.join(' ')).not.toContain('Untrusted input');
         expect(call.input).toContain('Untrusted input');
         expect(call.input).toContain(RUN_CONTRACT);
+        expect(call.input).toContain('nontechnical person');
+        expect(call.input).toContain('Never include expected outputs');
         expect(call.env).not.toHaveProperty('DATABASE_URL');
         expect(call.env).not.toHaveProperty('OPENAI_API_KEY');
         expect(call.env).not.toHaveProperty('LB_CODEX_WORKER_KEY');
         const schema = JSON.parse(await readFile(args[args.indexOf('--output-schema') + 1], 'utf8'));
-        expect(schema).toMatchObject({ additionalProperties: false, required: ['files', 'untranslated', 'notes'] });
+        expect(schema).toMatchObject({ additionalProperties: false, required: ['testCases', 'files', 'untranslated', 'notes'] });
         directory = call.cwd;
         await writeFile(args[args.indexOf('--output-last-message') + 1], JSON.stringify(moduleOutput));
         return success;

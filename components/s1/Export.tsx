@@ -30,7 +30,6 @@ export default function Export({ op }: { op: Operation }) {
   return <section className="panel s1-panel s1-fields">
     <h2>Replayable package</h2>
     <p>{targetOf(project.target_language).name} source, build output, recorded references, test inputs, and the replay harness.</p>
-    {run?.summary && <p>{run.summary.match ?? 0} matched · {run.summary.difference ?? 0} differences · {run.summary.needs_reference ?? 0} need reference</p>}
     {pkg && <p role="status">Package: {pkg.status}</p>}
     <div className="s1-row">
       <button type="button" className="secondary" onClick={build} disabled={op.busy || run?.completeness !== 'complete' || pkg?.status === 'building'}>Build export</button>

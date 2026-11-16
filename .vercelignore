@@ -1,0 +1,12 @@
+.git
+.cache
+.env
+.env.*
+!.env.example
+graphify-out
+fixtures/bin
+fixtures/examples
+node_modules
+.next
+Screenshot*.png
+*.log

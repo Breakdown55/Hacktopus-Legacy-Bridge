@@ -40,6 +40,9 @@ const workspace = route({ role: 'viewer' }, async ({ ctx, url }) => {
        AND provenance='captured_original' AND source_revision_id=$3 ORDER BY created_at DESC,id DESC LIMIT 1
      ) o ON true WHERE c.project_id=$1 AND c.org_id=$2 ORDER BY c.created_at,c.id`, [projectId, ctx.orgId, heads.current_source_revision_id],
   );
+  const [generation] = await ctx.db.query<{ id: string; status: string; progress: unknown }>(
+    "SELECT id,status,progress FROM jobs WHERE org_id=$1 AND project_id=$2 AND kind='generate' AND subject_id=$3 AND status IN ('queued','running') ORDER BY created_at DESC,id DESC LIMIT 1",
+    [ctx.orgId, projectId, heads.approved_scope_revision_id]);
   const summaries = await ctx.db.query<{ id: string }>(
     'SELECT id FROM verification_runs WHERE project_id=$1 AND org_id=$2 ORDER BY created_at DESC,id DESC LIMIT 20',
     [projectId, ctx.orgId],
@@ -58,7 +61,7 @@ const workspace = route({ role: 'viewer' }, async ({ ctx, url }) => {
     'SELECT entries FROM case_set_revisions WHERE id=$1 AND org_id=$2 AND project_id=$3',
     [heads.current_case_set_revision_id, ctx.orgId, projectId],
   ) : [];
-  return { body: { environments, cases, caseSet: caseSet?.entries ?? [], run, export: exp ? await getExport(ctx, exp.id) : null, source: source ?? null } };
+  return { body: { environments, cases, generation: generation ?? null, caseSet: caseSet?.entries ?? [], run, export: exp ? await getExport(ctx, exp.id) : null, source: source ?? null } };
 });
 
 export const s1Workspace = (req: Request) => enabled(req) ? workspace(req) : Promise.resolve(problem(404, 'not_found', 'Local S1 mode is disabled'));

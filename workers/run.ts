@@ -17,6 +17,8 @@ import { NODE_IMAGE, targetImage } from './build/toolchains';
 import { enqueue } from '../server/jobs/queue';
 import { defaultWorkerId, workerLoop } from './main';
 import type { WorkerEnv } from './runtime';
+import { bankLedgerDemo } from './demo/bank-ledger';
+import { join } from 'node:path';
 
 const ORIGINAL_IMAGE = process.env.LB_ORIGINAL_IMAGE ?? 'debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc';
 
@@ -57,6 +59,11 @@ async function main() {
     build: localBuild,
     buildDocker: { runtime: process.env.LB_RUNTIME || undefined },
   };
+  // Demo replay for a project named "Bank Ledger". This worker already refuses to start in production.
+  if (process.env.LB_DEMO_REPLAY === '1') {
+    env.demo = bankLedgerDemo(join(__dirname, '../fixtures/demo/bank-ledger'));
+    console.warn(env.demo ? '[lb] demo replay is ON for projects named "Bank Ledger" (LB_DEMO_REPLAY=1).' : '[lb] LB_DEMO_REPLAY=1 but no recording was found.');
+  }
   let stop = false;
   for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stop = true; });
   console.log(`[lb] worker ${env.workerId} started`);

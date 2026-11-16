@@ -18,9 +18,13 @@ export interface GenerationRequest {
   priorRevision?: { id: string; files: { path: string; content: string }[]; buildDiagnostics?: unknown[] };
   /** Free text from the user (what to change or fix). User-authored, unlike the evidence. */
   instructions?: string;
+  activeBehaviorId?: string;
+  unansweredQuestions?: string[];
+  sampleInput?: { name: string; text: string };
 }
-export interface Untranslated { id: string; behaviorId?: string; file: string; line: number; reason: string; evidence: string[] }
+export interface Untranslated { question?: string; id: string; behaviorId?: string; file: string; line: number; reason: string; evidence: string[] }
 export interface GenerationResult {
+  testCases?: import('../../packages/contracts/src/generation-preview').SuggestedTestCase[];
   files: { path: string; content: string }[];
   untranslated: Untranslated[];
   notes: string;

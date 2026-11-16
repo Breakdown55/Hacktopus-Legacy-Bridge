@@ -15,6 +15,31 @@ type Suggestion = { name: string; reason: string };
 
 const signalText: Record<string, string> = { entry_point_name: 'main function', incoming_references: 'called from elsewhere' };
 const MAX_PSEUDOCODE = 4;
+/** What the analysis is doing, in the order it happens. Shown one line at a time while it runs; it is illustrative, not a live log. */
+const ANALYSIS_STEPS = [
+  'Loading the program into Ghidra…',
+  'Reading the file format and sections…',
+  'Finding where the code starts running…',
+  'Listing the functions the compiler left behind…',
+  'Following calls between functions…',
+  'Collecting the text the program prints and checks…',
+  'Turning machine code into readable pseudocode…',
+  'Sorting the program’s own functions from the C runtime…',
+  'Almost there. Large programs take a few minutes…',
+];
+
+/** Spinner plus a line of text that changes every few seconds. */
+function AnalysisProgress() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setStep(n => Math.min(n + 1, ANALYSIS_STEPS.length - 1)), 4500);
+    return () => clearInterval(timer);
+  }, []);
+  return <div className="analysis-progress" role="status">
+    <span className="feature-indicator spinning" aria-hidden="true" />
+    <span key={step} className="analysis-step">{ANALYSIS_STEPS[step]}</span>
+  </div>;
+}
 /** Placeholder names a decompiler gives functions that have no symbol. Only these are named automatically. */
 const UNNAMED = /^(FUN_|SUB_|0x)[0-9a-f]+$/i;
 
@@ -43,7 +68,7 @@ export default function Select({ op }: { op: Operation }) {
   const [typed, setTyped] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
-  const [suggestions, setSuggestions] = useState<Record<string, Suggestion | null>>({});
+  const [editValue, setEditValue] = useState('');
   const [naming, setNaming] = useState<{ done: number; total: number } | 'unavailable' | null>(null);
   const chosen = candidates.filter(c => !off.has(c.findings[0]));
   const draftSettled = Boolean(draft.data || draft.error);
@@ -62,18 +87,20 @@ export default function Select({ op }: { op: Operation }) {
     void (async () => {
       try {
         setNaming({ done: 0, total: todo.length });
-        const jobs: string[] = [];
-        for (const id of todo) jobs.push((await s1<{ job_id: string }>(path + '/function-name-suggestions', { method: 'POST', data: { finding_id: id }, signal })).job_id);
-        for (const [i, job] of jobs.entries()) {
-          const { suggestion } = await waitJob<{ suggestion: Suggestion | null }>(job, signal);
-          const id = todo[i];
-          if (suggestion) {
-            storeName(sourceId, id, suggestion.name);
-            setLabels(previous => (previous[id] === undefined ? { ...previous, [id]: suggestion.name } : previous));
-          }
+        let failed = false;
+        for (const [i, id] of todo.entries()) {
+          try {
+            const job = await s1<{ job_id: string }>(path + '/function-name-suggestions', { method: 'POST', data: { finding_id: id }, signal });
+            const result = await waitJob<{ suggestion: Suggestion | null } | null>(job.job_id, signal);
+            const suggestion = result?.suggestion;
+            if (suggestion) {
+              storeName(sourceId, id, suggestion.name);
+              setLabels(previous => (previous[id] === undefined ? { ...previous, [id]: suggestion.name } : previous));
+            }
+          } catch { signal.throwIfAborted(); failed = true; }
           setNaming({ done: i + 1, total: todo.length });
         }
-        setNaming(null);
+        setNaming(failed ? 'unavailable' : null);
       } catch {
         if (!signal.aborted) setNaming('unavailable');
       }
@@ -86,25 +113,12 @@ export default function Select({ op }: { op: Operation }) {
     return labels[id] ?? draft.data?.document?.behaviors?.find(b => b.evidence[0] === id)?.label ?? '';
   }
 
-  function suggest(id: string) {
-    void op.run('Suggesting a label…', async (signal) => {
-      const deadline = AbortSignal.timeout(100_000);
-      const requestSignal = AbortSignal.any([signal, deadline]);
-      const job = await s1<{ job_id: string }>(path + '/function-name-suggestions', {
-        method: 'POST', data: { finding_id: id }, signal: requestSignal,
-      });
-      try {
-        const { suggestion } = await waitJob<{ suggestion: Suggestion | null }>(job.job_id, requestSignal);
-        setSuggestions(previous => ({ ...previous, [id]: suggestion }));
-        return '';
-      } catch (error) {
-        if (deadline.aborted || /function_naming_unavailable/.test((error as Error).message))
-          throw new Error('AI naming is unavailable. You can enter a label manually.');
-        if (/function_pseudocode_missing/.test((error as Error).message))
-          throw new Error('This function has no pseudocode yet. You can enter a label manually.');
-        throw error;
-      }
-    });
+  function finishRename(id: string) {
+    if (editValue.trim()) {
+      setLabels(previous => ({ ...previous, [id]: editValue.trim() }));
+      if (sourceId) storeName(sourceId, id, editValue.trim());
+    }
+    setEditing(null);
   }
 
   function add(event: FormEvent) {
@@ -156,7 +170,7 @@ export default function Select({ op }: { op: Operation }) {
       <section className="panel">
         <h2>Features found</h2>
         {!sourceId && <p className="hint">Upload an executable first.</p>}
-        {sourceId && analysing && <p className="hint" role="status">Analyzing the executable…</p>}
+        {sourceId && analysing && <AnalysisProgress />}
         {sourceId && index && (['failed', 'cancelled'].includes(index.status) || index.outcome === 'failed') && <p className="hint" role="status">The analysis didn’t finish. You can still type the features you want.</p>}
         {sourceId && index?.status === 'succeeded' && index.outcome !== 'failed' && found.data && !candidates.length && <p className="hint">Nothing obvious was found. Type the features you want.</p>}
         {found.error && <p role="alert">{found.error}</p>}
@@ -167,32 +181,17 @@ export default function Select({ op }: { op: Operation }) {
           {candidates.map(c => {
             const id = c.findings[0];
             const label = definedLabel(id);
-            const suggestion = suggestions[id];
             return <div key={id}>
               <div className="function-label-row">
-                <label>
-                  <input type="checkbox" checked={!off.has(id)} disabled={op.busy} onChange={e => { const n = new Set(off); if (e.target.checked) n.delete(id); else n.add(id); setOff(n); }} />
-                  <span>{label.trim() ? label.trim() + ' (' + c.title + ')' : c.title}{c.signals.length ? ' · ' + c.signals.map(s => signalText[s] ?? s).join(', ') : ''}</span>
-                </label>
-                <button type="button" className="secondary" disabled={op.busy} aria-expanded={editing === id}
-                  aria-label={'Rename ' + c.title} onClick={() => setEditing(editing === id ? null : id)}>Rename</button>
+                <input type="checkbox" aria-label={'Select ' + (label.trim() || c.title)} checked={!off.has(id)} disabled={op.busy} onChange={e => { const n = new Set(off); if (e.target.checked) n.delete(id); else n.add(id); setOff(n); }} />
+                {editing === id ? <input className="function-name-input" aria-label={'Name for ' + c.title} autoFocus
+                  value={editValue} placeholder={label.trim() || c.title} maxLength={100} disabled={op.busy}
+                  onChange={e => setEditValue(e.target.value)} onBlur={() => finishRename(id)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); finishRename(id); } if (e.key === 'Escape') { e.preventDefault(); setEditing(null); } }} />
+                  : <span className="function-name" title={label.trim() ? 'Found in the program as ' + c.title : undefined}>{label.trim() || c.title}{c.signals.length ? ' · ' + c.signals.map(s => signalText[s] ?? s).join(', ') : ''}</span>}
+                <button type="button" className="secondary" disabled={op.busy} aria-label={'Rename ' + c.title}
+                  onClick={() => { setEditValue(''); setEditing(id); }}>Rename</button>
               </div>
-              {editing === id && <div className="function-label-editor">
-                <div className="field">
-                  <label htmlFor={'function-label-' + id}>Label for {c.title}</label>
-                  <input id={'function-label-' + id} value={label} placeholder={c.title} maxLength={100} disabled={op.busy}
-                    onChange={e => { const value = e.target.value; setLabels(previous => ({ ...previous, [id]: value })); }} />
-                </div>
-                <button type="button" className="secondary" disabled={op.busy} onClick={() => suggest(id)}>Suggest with AI</button>
-                {suggestion && <div className="function-label-suggestion">
-                  <p className="hint"><strong>{suggestion.name}</strong> · {suggestion.reason}</p>
-                  <button type="button" className="secondary" disabled={op.busy} onClick={() => {
-                    setLabels(previous => ({ ...previous, [id]: suggestion.name }));
-                    setSuggestions(previous => { const next = { ...previous }; delete next[id]; return next; });
-                  }}>Use suggestion</button>
-                </div>}
-                {suggestion === null && <p className="hint">The evidence didn’t support a label.</p>}
-              </div>}
             </div>;
           })}
           {extra.map(name => <label key={name}><input type="checkbox" checked disabled={op.busy} onChange={() => setExtra(extra.filter(x => x !== name))} />{name}</label>)}
@@ -207,6 +206,6 @@ export default function Select({ op }: { op: Operation }) {
         </form>
       </section>
     </div>
-    <div className="actions"><button className="primary" type="button" disabled={op.busy || !total} onClick={next}>Next</button></div>
+    <div className="actions"><button className="primary" type="button" disabled={op.busy || analysing || naming !== null && naming !== 'unavailable' || !total} onClick={next}>Next</button></div>
   </>;
 }

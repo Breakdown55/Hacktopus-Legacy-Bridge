@@ -40,7 +40,7 @@ export default function Picker({ projects, onDownload, onDelete, onNew }: Props)
     <section className="picker">
       <h1>Your Projects</h1>
       <div className="grid">
-        {projects.map(project => (
+        {[...projects].sort((a, b) => b.edited - a.edited).map(project => (
           <article className="project" key={project.id}>
             <header className="card-tools">
               <h2><Link className="project-link" href={projectPath(project.id)}>{project.name}</Link></h2>

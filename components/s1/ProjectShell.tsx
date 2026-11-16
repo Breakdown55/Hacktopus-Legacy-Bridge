@@ -5,6 +5,9 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { projectPath, stages } from '@/lib/projects';
 import { s1, s1Local, type S1Project } from '@/lib/s1-client';
+import Sidebar from '../Sidebar';
+
+const loadProjects = async () => (await s1<{ items: { id: string; name: string }[] }>('/projects?limit=50')).items.map(({ id, name }) => ({ id, name }));
 
 export type Verification = {
   id: string;
@@ -14,6 +17,7 @@ export type Verification = {
   applies_to_current: boolean;
 };
 type Details = {
+  generation?: { id: string; status: string; progress: unknown } | null;
   source: { path: string; execution_consent_at: string | null } | null;
   environments: { id: string; name: string; role: string }[];
   cases: { id: string; name: string; capture_id: string | null; capture_deterministic: boolean | null }[];
@@ -70,10 +74,7 @@ export default function S1ProjectShell({ children }: { children: ReactNode }) {
   const { project } = loaded;
   return <Context.Provider value={{ ...loaded, refresh }}>
     <div className="shell">
-      <aside aria-label="Project sidebar">
-        <h2>{project.name}</h2>
-        <Link className="secondary nav-home" href="/">All projects</Link>
-      </aside>
+      <Sidebar currentId={project.id} load={loadProjects} />
       <div className="workflow">
         <nav className="stage-nav" aria-label="Workflow steps">
           {stages.map((name, index) => {

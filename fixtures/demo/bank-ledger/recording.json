@@ -1,0 +1,183 @@
+{
+  "artifact_sha256": "58d06f45e2728a26538c8dc6da2d4574e062d3038e425e52bfe30897b24078ef",
+  "rea": {
+    "image": "sha256:8df04a2cbca3dcf26960566b4ba50109e2f2c8adb7601b5ead7cb38dd0bc6030",
+    "calls": [
+      {
+        "op": "procedures",
+        "file": "procedures.txt"
+      },
+      {
+        "op": "strings",
+        "file": "strings.txt"
+      },
+      {
+        "op": "decompile_all",
+        "file": "decompile_all.txt"
+      },
+      {
+        "op": "xrefs",
+        "address": "0x4010a0",
+        "file": "xrefs.txt"
+      }
+    ]
+  },
+  "names": {
+    "0x401186": {
+      "name": "parse_decimal_substring",
+      "reason": "Reads param_3 characters starting at offset param_2, rejects any character outside '0'\u2013'9' with -1, and accumulates a decimal value by multiplying by 10 and adding each digit. Returns 0 when param_3 is less than 1."
+    },
+    "0x4011cf": {
+      "name": "validate_eight_digit_mod11_checksum",
+      "reason": "Checks that the input has eight digits, then sums the preceding seven digits from right to left with weights cycling from 2 through 7. Returns whether (11 - sum % 11) % 10 matches the final digit."
+    },
+    "0x4012e8": {
+      "name": "find_entry_by_first_field",
+      "reason": "Scans DAT_00404080 entries in DAT_004040a0, advancing four words per entry. Returns a pointer to the first entry whose first field equals param_1, or null if the count is below one or no match is found."
+    },
+    "0x40132c": {
+      "name": "append_entry_if_valid",
+      "reason": "Accepts byte values matching (param_2 & 0xef) == 0x43, requires FUN_004012e8() to return zero, and checks a 64-entry limit. On success, increments the global count, stores param_1, param_3, and param_2 in the indexed entry, clears two fields, and returns zero; otherwise returns an error code."
+    },
+    "0x4013ad": {
+      "name": "add_to_value_if_below_limit",
+      "reason": "Adds param_2 to the value at param_1 + 8. Stores the sum and returns 0 if it is below 1,000,000,000,000; otherwise leaves the stored value unchanged and returns 0x1f."
+    },
+    "0x4013cf": {
+      "name": "subtract_amount_with_mode_limits",
+      "reason": "Subtracts the second argument from the field at offset 8. Mode 'S' rejects counts above 5 or negative results; other modes deduct another 3500 for negative results and reject values below -50000. On success, stores the result, increments the count at offset 0x18, and returns 0."
+    },
+    "0x40141d": {
+      "name": "transfer_amount_with_destination_limit",
+      "reason": "Rejects identical source and destination pointers, saves source fields, and calls a helper with the source and amount. If the helper returns zero, adds the amount to the destination field at offset 8 when the sum is below 1,000,000,000,000; otherwise restores the saved source fields and returns 0x1f."
+    },
+    "0x401480": {
+      "name": "compute_type_and_range_based_scaled_value",
+      "reason": "Reads a value at offset 8 and a type character at offset 0x1c. Negative values use a factor of 1800; nonnegative values select factors of 150, 275, or 410 for type 'S', otherwise 0 or 50, based on value thresholds. It adds 60000 before dividing by 120000 and restores the negative sign for negative inputs."
+    },
+    "0x40151d": {
+      "name": "apply_record_adjustments_and_reset_flags",
+      "reason": "Iterates over global records, adds a helper-computed amount to two fields when the resulting first field is below 1,000,000,000,000, subtracts 500 from that field for type 'C' below 100,000, and clears a 32-bit field in each record."
+    },
+    "0x4015a7": {
+      "name": "format_amount_with_commas_and_db_suffix",
+      "reason": "Formats the absolute input in hundredths, inserting commas every three integer digits and two decimal digits. Adds leading spaces to pad the numeric portion to 20 characters and appends \" DB\" when the input is negative."
+    },
+    "0x40174a": {
+      "name": "print_trial_balance",
+      "reason": "Prints \"TRIAL BALANCE\", iterates over account records to print an identifier, character field, formatted amount, and interest, then prints the account count and the sum of the account amounts."
+    },
+    "0x40181a": {
+      "name": "process_journal_records",
+      "reason": "Prints \"POSTING JOURNAL\", reads fixed-length records from stdin, parses numeric fields, validates identifiers, and dispatches operations that update stored values. Tracks posted and rejected records, prints each record's status, and reports totals at EOF."
+    }
+  },
+  "generation": {
+    "model": "codex cli-default",
+    "behaviors": {
+      "feature-1d170d78": "0x401186",
+      "feature-432967e5": "0x4011cf",
+      "feature-c10f757d": "0x4012e8",
+      "feature-78ff6cad": "0x40132c",
+      "feature-d1d9a54c": "0x4013ad",
+      "feature-ff3a31e5": "0x4013cf",
+      "feature-7fc46815": "0x40141d",
+      "feature-927e7754": "0x401480",
+      "feature-cddcaa5e": "0x40151d",
+      "feature-ecad0855": "0x4015a7",
+      "feature-73e1a380": "0x40174a",
+      "feature-156fb5ce": "0x40181a"
+    },
+    "first": {
+      "files": [
+        {
+          "path": "src/index.ts",
+          "content": "// Implements the fixed-width bank journal and its ledger reports.\nexport interface RunInput { argv: string[]; stdin: Uint8Array; env: Record<string, string | undefined> }\nexport interface RunDeps { now(): Date; random(): number; cwd: string; env: Record<string, string | undefined> }\nexport interface RunOutput { stdout?: string; stderr?: string; exitCode?: number }\ninterface Entry { account: bigint; balance: bigint; interest: bigint; withdrawals: number; kind: number }\n\n/** Keeps the low 64 bits of a value and returns their signed interpretation. */\nfunction signed(value: bigint): bigint { return BigInt.asIntN(64, value); }\n\n/* LB-BEHAVIOR:feature-1d170d78 */\n/** Parses count bytes starting at offset, returning zero for an empty range or minus one for a nondigit; decimal accumulation wraps at 64 bits. */\nexport function parseDecimalSubstring(bytes: Uint8Array, offset: number, count: number): bigint {\n  let value = 0n;\n  for (let index = 0; index < count; index++) {\n    const digit = (bytes[offset + index] ?? 0) - 48;\n    if (digit < 0 || digit > 9) return -1n;\n    value = signed(value * 10n + BigInt(digit));\n  }\n  return value;\n}\n\n/* LB-BEHAVIOR:feature-432967e5 */\n/** Checks an eight-digit account number using repeating weights two through seven, returning whether its final digit matches. */\nexport function validateEightDigitMod11Checksum(account: bigint): boolean {\n  if (account < 10000000n || account >= 100000000n) return false;\n  let remaining = account;\n  let weight = 2n;\n  let sum = 0n;\n  do {\n    remaining /= 10n;\n    sum += remaining % 10n * weight;\n    weight = weight === 7n ? 2n : weight + 1n;\n  } while (remaining > 9n);\n  return (11n - sum % 11n) % 10n === account % 10n;\n}\n\n/* LB-BEHAVIOR:feature-c10f757d */\n/** Finds the first entry with the supplied account number, returning undefined if none exists. */\nfunction findEntry(entries: Entry[], account: bigint): Entry | undefined {\n  return entries.find(entry => entry.account === account);\n}\n\n/* LB-BEHAVIOR:feature-78ff6cad */\n/** Appends an account with its starting balance and C or S kind; returns the original rejection code or zero. */\nfunction appendEntry(entries: Entry[], account: bigint, kind: number, balance: bigint): number {\n  if ((kind & 0xef) !== 0x43) return 13;\n  if (findEntry(entries, account)) return 23;\n  if (entries.length === 64) return 34;\n  entries.push({ account, kind, balance, interest: 0n, withdrawals: 0 });\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-d1d9a54c */\n/** Adds an amount with signed 64-bit wraparound, returning 31 without changing the entry when the resulting balance reaches the limit. */\nfunction addAmount(entry: Entry, amount: bigint): number {\n  const balance = signed(entry.balance + amount);\n  if (balance >= 1000000000000n) return 31;\n  entry.balance = balance;\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-ff3a31e5 */\n/** Withdraws an amount, enforcing S withdrawal and balance limits or the other mode's overdraft charge; returns a rejection code or zero. */\nfunction subtractAmount(entry: Entry, amount: bigint): number {\n  let balance = signed(entry.balance - amount);\n  if (entry.kind === 83) {\n    if (entry.withdrawals > 5) return 33;\n    if (balance < 0n) return 32;\n  } else if (balance < 0n) {\n    balance = signed(balance - 3500n);\n    if (balance < -50000n) return 32;\n  }\n  entry.balance = balance;\n  entry.withdrawals = (entry.withdrawals + 1) | 0;\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-7fc46815 */\n/** Transfers an amount between distinct entries, restoring the source balance and withdrawal count if the destination rejects it; returns a status code. */\nfunction transferAmount(source: Entry, destination: Entry, amount: bigint): number {\n  if (source === destination) return 24;\n  const balance = source.balance;\n  const withdrawals = source.withdrawals;\n  const status = subtractAmount(source, amount);\n  if (status !== 0) return status;\n  if (addAmount(destination, amount) !== 0) {\n    source.balance = balance;\n    source.withdrawals = withdrawals;\n    return 31;\n  }\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-927e7754 */\n/** Calculates an entry's adjustment from its balance and kind, retaining signed 64-bit intermediate wraparound and division toward zero. */\nfunction scaledValue(entry: Entry): bigint {\n  const balance = entry.balance;\n  if (balance < 0n) return signed(-(signed(signed(balance * -1800n) + 60000n) / 120000n));\n  let rate: bigint;\n  if (entry.kind === 83) rate = balance <= 99999n ? 150n : balance < 1000000n ? 275n : 410n;\n  else rate = balance > 499999n ? 50n : 0n;\n  return signed(signed(rate * balance) + 60000n) / 120000n;\n}\n\n/* LB-BEHAVIOR:feature-cddcaa5e */\n/** Applies adjustments to all entries, charges low-balance C accounts, and resets withdrawal counts; returns the number of entries. */\nfunction applyAdjustments(entries: Entry[]): number {\n  for (const entry of entries) {\n    const adjustment = scaledValue(entry);\n    const balance = signed(entry.balance + adjustment);\n    if (balance < 1000000000000n) {\n      entry.balance = balance;\n      entry.interest = signed(entry.interest + adjustment);\n    }\n    if (entry.kind === 67 && entry.balance < 100000n) entry.balance = signed(entry.balance - 500n);\n    entry.withdrawals = 0;\n  }\n  return entries.length;\n}\n\n/* LB-BEHAVIOR:feature-ecad0855 */\n/** Formats signed integer cents with commas, a right-aligned seventeen-character whole part, and a DB suffix for negatives; keeps native negation wraparound. */\nexport function formatAmount(amount: bigint): string {\n  amount = signed(amount);\n  let magnitude = signed(-amount);\n  if (magnitude < 0n) magnitude = amount;\n  const whole = (magnitude / 100n).toString();\n  const padding = Math.max(0, 17 - whole.length - Math.trunc((whole.length - 1) / 3));\n  let result = ' '.repeat(padding);\n  for (let index = 0; index < whole.length; index++) {\n    result += whole[index];\n    if (index !== whole.length - 1 && (whole.length - 1 - index) % 3 === 0) result += ',';\n  }\n  // Conversion to a character retains the low byte, including for the minimum signed value.\n  const tens = Number((magnitude % 100n) / 10n) + 48;\n  const units = Number(magnitude % 10n) + 48;\n  return result + '.' + String.fromCharCode(tens & 255, units & 255) + (amount < 0n ? ' DB' : '');\n}\n\n/* LB-BEHAVIOR:feature-73e1a380 */\n/** Returns the trial balance in insertion order, with each accumulated interest amount and a signed 64-bit total. */\nfunction printTrialBalance(entries: Entry[]): string {\n  let output = 'TRIAL BALANCE\\n';\n  let total = 0n;\n  for (const entry of entries) {\n    output += `${entry.account.toString().padStart(8, '0')} ${String.fromCharCode(entry.kind)} ${formatAmount(entry.balance)}\\n`;\n    output += `           INTEREST ${formatAmount(entry.interest)}\\n`;\n    total = signed(total + entry.balance);\n  }\n  return output + `ACCOUNTS ${entries.length}\\nTOTAL      ${formatAmount(total)}\\n`;\n}\n\n/* LB-BEHAVIOR:feature-156fb5ce */\n/* LB-UNTRANSLATED:non-ascii-record-echo */\n/** Processes stdin as fixed-width journal records and returns posting and balance reports, with exit four if any record is rejected; arguments and environment are unused. */\nexport async function run(input: RunInput, _deps: RunDeps): Promise<RunOutput> {\n  const entries: Entry[] = [];\n  let output = 'POSTING JOURNAL\\n';\n  let records = 0;\n  let posted = 0;\n  let rejected = 0;\n  let postedAmount = 0n;\n  let cursor = 0;\n  while (cursor < input.stdin.length) {\n    // fgets consumes at most 127 bytes and includes a terminating newline when present.\n    const start = cursor;\n    while (cursor < input.stdin.length && cursor - start < 127) {\n      if (input.stdin[cursor++] === 10) break;\n    }\n    const chunk = input.stdin.subarray(start, cursor);\n    let length = 0;\n    while (length < chunk.length && chunk[length] !== 0 && chunk[length] !== 10 && chunk[length] !== 13) length++;\n    const record = chunk.subarray(0, length);\n    const code = Array.from(record.subarray(0, 2), byte => String.fromCharCode(byte)).join('');\n    records = (records + 1) | 0;\n    let account = 0n;\n    let amount = 0n;\n    let status = 11;\n    if (length === 30) {\n      if (code === 'ME') {\n        applyAdjustments(entries);\n        status = 0;\n      } else {\n        account = parseDecimalSubstring(record, 2, 8);\n        const destinationAccount = parseDecimalSubstring(record, 10, 8);\n        amount = parseDecimalSubstring(record, 18, 11);\n        if ((account | destinationAccount | amount) >= 0n) {\n          if (!validateEightDigitMod11Checksum(account)) status = 21;\n          else if (code === 'OP') status = appendEntry(entries, account, record[29]!, amount);\n          else {\n            const source = findEntry(entries, account);\n            if (!source) status = 22;\n            else if (code === 'DP') status = addAmount(source, amount);\n            else if (code === 'WD') status = subtractAmount(source, amount);\n            else if (code === 'XF') {\n              if (!validateEightDigitMod11Checksum(destinationAccount)) status = 21;\n              else {\n                const destination = findEntry(entries, destinationAccount);\n                status = destination ? transferAmount(source, destination, amount) : 22;\n              }\n            } else status = 12;\n          }\n        }\n      }\n    }\n    if (status === 0) {\n      posted = (posted + 1) >>> 0;\n      postedAmount = signed(postedAmount + amount);\n    } else rejected = (rejected + 1) >>> 0;\n    output += `${records.toString().padStart(6, '0')} ${code} ${(account < 0n ? 0n : account).toString().padStart(8, '0')} ${formatAmount(amount < 0n ? 0n : amount)} ${status.toString().padStart(2, '0')}\\n`;\n  }\n  output += `RECORDS ${records} POSTED ${posted | 0} REJECTED ${rejected | 0}\\nPOSTED     ${formatAmount(postedAmount)}\\n`;\n  output += printTrialBalance(entries);\n  return { stdout: output, exitCode: rejected !== 0 ? 4 : 0 };\n}\n"
+        }
+      ],
+      "untranslated": [
+        {
+          "id": "non-ascii-record-echo",
+          "file": "src/index.ts",
+          "line": 154,
+          "reason": "The native %.2s echoes up to two raw input bytes. The string output contract cannot reproduce arbitrary invalid UTF-8 byte sequences verbatim. The implementation preserves ASCII echoes but maps other bytes to Unicode characters.",
+          "evidence": [
+            "The journal prints the first two record bytes using %.2s.",
+            "RunOutput exposes stdout as a string rather than bytes."
+          ],
+          "question": "Should input containing unusual characters, such as \u00e9, be accepted as journal input?",
+          "behaviorId": "feature-156fb5ce"
+        }
+      ],
+      "notes": "Implemented the supplied journal codes ME, OP, DP, WD and XF from binary constants. Arithmetic uses signed 64-bit wrapping and signed 32-bit withdrawal counters. No files were created or executed.",
+      "testCases": [
+        {
+          "argv": [],
+          "name": "No input",
+          "files": [],
+          "stdin": ""
+        },
+        {
+          "argv": [],
+          "name": "Open an account and deposit",
+          "files": [],
+          "stdin": "OP100000090000000000000010000C\nDP100000090000000000000000125 \n"
+        },
+        {
+          "argv": [],
+          "name": "Reject a short record",
+          "files": [],
+          "stdin": "OP\n"
+        },
+        {
+          "argv": [],
+          "name": "Apply month end with no accounts",
+          "files": [],
+          "stdin": "ME000000000000000000000000000 \n"
+        },
+        {
+          "argv": [],
+          "name": "Reject a bad account checksum",
+          "files": [],
+          "stdin": "OP100000000000000000000010000S\n"
+        }
+      ]
+    },
+    "resolved": {
+      "files": [
+        {
+          "path": "src/index.ts",
+          "content": "// Implements the ASCII fixed-width bank journal and its ledger reports.\nexport interface RunInput { argv: string[]; stdin: Uint8Array; env: Record<string, string | undefined> }\nexport interface RunDeps { now(): Date; random(): number; cwd: string; env: Record<string, string | undefined> }\nexport interface RunOutput { stdout?: string; stderr?: string; exitCode?: number }\ninterface Entry { account: bigint; balance: bigint; interest: bigint; withdrawals: number; kind: number }\n\n/** Keeps the low 64 bits of a value and returns their signed interpretation. */\nfunction signed(value: bigint): bigint { return BigInt.asIntN(64, value); }\n\n/* LB-BEHAVIOR:feature-1d170d78 */\n/** Parses count bytes starting at offset, returning zero for an empty range or minus one for a nondigit; decimal accumulation wraps at 64 bits. */\nexport function parseDecimalSubstring(bytes: Uint8Array, offset: number, count: number): bigint {\n  let value = 0n;\n  for (let index = 0; index < count; index++) {\n    const digit = (bytes[offset + index] ?? 0) - 48;\n    if (digit < 0 || digit > 9) return -1n;\n    value = signed(value * 10n + BigInt(digit));\n  }\n  return value;\n}\n\n/* LB-BEHAVIOR:feature-432967e5 */\n/** Checks an eight-digit account number using repeating weights two through seven, returning whether its final digit matches. */\nexport function validateEightDigitMod11Checksum(account: bigint): boolean {\n  if (account < 10000000n || account >= 100000000n) return false;\n  let remaining = account;\n  let weight = 2n;\n  let sum = 0n;\n  do {\n    remaining /= 10n;\n    sum += remaining % 10n * weight;\n    weight = weight === 7n ? 2n : weight + 1n;\n  } while (remaining > 9n);\n  return (11n - sum % 11n) % 10n === account % 10n;\n}\n\n/* LB-BEHAVIOR:feature-c10f757d */\n/** Finds the first entry with the supplied account number, returning undefined if none exists. */\nfunction findEntry(entries: Entry[], account: bigint): Entry | undefined {\n  return entries.find(entry => entry.account === account);\n}\n\n/* LB-BEHAVIOR:feature-78ff6cad */\n/** Appends an account with its starting balance and C or S kind; returns the original rejection code or zero. */\nfunction appendEntry(entries: Entry[], account: bigint, kind: number, balance: bigint): number {\n  if ((kind & 0xef) !== 0x43) return 13;\n  if (findEntry(entries, account)) return 23;\n  if (entries.length === 64) return 34;\n  entries.push({ account, kind, balance, interest: 0n, withdrawals: 0 });\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-d1d9a54c */\n/** Adds an amount with signed 64-bit wraparound, returning 31 without changing the entry when the resulting balance reaches the limit. */\nfunction addAmount(entry: Entry, amount: bigint): number {\n  const balance = signed(entry.balance + amount);\n  if (balance >= 1000000000000n) return 31;\n  entry.balance = balance;\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-ff3a31e5 */\n/** Withdraws an amount, enforcing S withdrawal and balance limits or the other mode's overdraft charge; returns a rejection code or zero. */\nfunction subtractAmount(entry: Entry, amount: bigint): number {\n  let balance = signed(entry.balance - amount);\n  if (entry.kind === 83) {\n    if (entry.withdrawals > 5) return 33;\n    if (balance < 0n) return 32;\n  } else if (balance < 0n) {\n    balance = signed(balance - 3500n);\n    if (balance < -50000n) return 32;\n  }\n  entry.balance = balance;\n  entry.withdrawals = (entry.withdrawals + 1) | 0;\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-7fc46815 */\n/** Transfers an amount between distinct entries, restoring the source balance and withdrawal count if the destination rejects it; returns a status code. */\nfunction transferAmount(source: Entry, destination: Entry, amount: bigint): number {\n  if (source === destination) return 24;\n  const balance = source.balance;\n  const withdrawals = source.withdrawals;\n  const status = subtractAmount(source, amount);\n  if (status !== 0) return status;\n  if (addAmount(destination, amount) !== 0) {\n    source.balance = balance;\n    source.withdrawals = withdrawals;\n    return 31;\n  }\n  return 0;\n}\n\n/* LB-BEHAVIOR:feature-927e7754 */\n/** Calculates an entry's adjustment from its balance and kind, retaining signed 64-bit intermediate wraparound and division toward zero. */\nfunction scaledValue(entry: Entry): bigint {\n  const balance = entry.balance;\n  if (balance < 0n) return signed(-(signed(signed(balance * -1800n) + 60000n) / 120000n));\n  let rate: bigint;\n  if (entry.kind === 83) rate = balance <= 99999n ? 150n : balance < 1000000n ? 275n : 410n;\n  else rate = balance > 499999n ? 50n : 0n;\n  return signed(signed(rate * balance) + 60000n) / 120000n;\n}\n\n/* LB-BEHAVIOR:feature-cddcaa5e */\n/** Applies adjustments to all entries, charges low-balance C accounts, and resets withdrawal counts; returns the number of entries. */\nfunction applyAdjustments(entries: Entry[]): number {\n  for (const entry of entries) {\n    const adjustment = scaledValue(entry);\n    const balance = signed(entry.balance + adjustment);\n    if (balance < 1000000000000n) {\n      entry.balance = balance;\n      entry.interest = signed(entry.interest + adjustment);\n    }\n    if (entry.kind === 67 && entry.balance < 100000n) entry.balance = signed(entry.balance - 500n);\n    entry.withdrawals = 0;\n  }\n  return entries.length;\n}\n\n/* LB-BEHAVIOR:feature-ecad0855 */\n/** Formats signed integer cents with commas, a right-aligned seventeen-character whole part, and a DB suffix for negatives; keeps native negation wraparound. */\nexport function formatAmount(amount: bigint): string {\n  amount = signed(amount);\n  let magnitude = signed(-amount);\n  if (magnitude < 0n) magnitude = amount;\n  const whole = (magnitude / 100n).toString();\n  const padding = Math.max(0, 17 - whole.length - Math.trunc((whole.length - 1) / 3));\n  let result = ' '.repeat(padding);\n  for (let index = 0; index < whole.length; index++) {\n    result += whole[index];\n    if (index !== whole.length - 1 && (whole.length - 1 - index) % 3 === 0) result += ',';\n  }\n  // Conversion to a character retains the low byte, including for the minimum signed value.\n  const tens = Number((magnitude % 100n) / 10n) + 48;\n  const units = Number(magnitude % 10n) + 48;\n  return result + '.' + String.fromCharCode(tens & 255, units & 255) + (amount < 0n ? ' DB' : '');\n}\n\n/* LB-BEHAVIOR:feature-73e1a380 */\n/** Returns the trial balance in insertion order, with each accumulated interest amount and a signed 64-bit total. */\nfunction printTrialBalance(entries: Entry[]): string {\n  let output = 'TRIAL BALANCE\\n';\n  let total = 0n;\n  for (const entry of entries) {\n    output += `${entry.account.toString().padStart(8, '0')} ${String.fromCharCode(entry.kind)} ${formatAmount(entry.balance)}\\n`;\n    output += `           INTEREST ${formatAmount(entry.interest)}\\n`;\n    total = signed(total + entry.balance);\n  }\n  return output + `ACCOUNTS ${entries.length}\\nTOTAL      ${formatAmount(total)}\\n`;\n}\n\n/* LB-BEHAVIOR:feature-156fb5ce */\n/** Processes ASCII stdin as fixed-width journal records and returns posting and balance reports, with exit four if any record is rejected; arguments and environment are unused. */\nexport async function run(input: RunInput, _deps: RunDeps): Promise<RunOutput> {\n  const entries: Entry[] = [];\n  let output = 'POSTING JOURNAL\\n';\n  let records = 0;\n  let posted = 0;\n  let rejected = 0;\n  let postedAmount = 0n;\n  let cursor = 0;\n  while (cursor < input.stdin.length) {\n    // fgets consumes at most 127 bytes and includes a terminating newline when present.\n    const start = cursor;\n    while (cursor < input.stdin.length && cursor - start < 127) {\n      if (input.stdin[cursor++] === 10) break;\n    }\n    const chunk = input.stdin.subarray(start, cursor);\n    let length = 0;\n    while (length < chunk.length && chunk[length] !== 0 && chunk[length] !== 10 && chunk[length] !== 13) length++;\n    const record = chunk.subarray(0, length);\n    // The approved input is ASCII, so each echoed byte is the same output character.\n    const code = Array.from(record.subarray(0, 2), byte => String.fromCharCode(byte)).join('');\n    records = (records + 1) | 0;\n    let account = 0n;\n    let amount = 0n;\n    let status = 11;\n    if (length === 30) {\n      if (code === 'ME') {\n        applyAdjustments(entries);\n        status = 0;\n      } else {\n        account = parseDecimalSubstring(record, 2, 8);\n        const destinationAccount = parseDecimalSubstring(record, 10, 8);\n        amount = parseDecimalSubstring(record, 18, 11);\n        if ((account | destinationAccount | amount) >= 0n) {\n          if (!validateEightDigitMod11Checksum(account)) status = 21;\n          else if (code === 'OP') status = appendEntry(entries, account, record[29]!, amount);\n          else {\n            const source = findEntry(entries, account);\n            if (!source) status = 22;\n            else if (code === 'DP') status = addAmount(source, amount);\n            else if (code === 'WD') status = subtractAmount(source, amount);\n            else if (code === 'XF') {\n              if (!validateEightDigitMod11Checksum(destinationAccount)) status = 21;\n              else {\n                const destination = findEntry(entries, destinationAccount);\n                status = destination ? transferAmount(source, destination, amount) : 22;\n              }\n            } else status = 12;\n          }\n        }\n      }\n    }\n    if (status === 0) {\n      posted = (posted + 1) >>> 0;\n      postedAmount = signed(postedAmount + amount);\n    } else rejected = (rejected + 1) >>> 0;\n    output += `${records.toString().padStart(6, '0')} ${code} ${(account < 0n ? 0n : account).toString().padStart(8, '0')} ${formatAmount(amount < 0n ? 0n : amount)} ${status.toString().padStart(2, '0')}\\n`;\n  }\n  output += `RECORDS ${records} POSTED ${posted | 0} REJECTED ${rejected | 0}\\nPOSTED     ${formatAmount(postedAmount)}\\n`;\n  output += printTrialBalance(entries);\n  return { stdout: output, exitCode: rejected !== 0 ? 4 : 0 };\n}\n"
+        }
+      ],
+      "untranslated": [],
+      "notes": "Retained the cumulative implementation and all behavior markers. Removed the non-ASCII echo uncertainty because the supplied answer limits input to ASCII. No files were created or run.",
+      "testCases": [
+        {
+          "argv": [],
+          "name": "No input",
+          "files": [],
+          "stdin": ""
+        },
+        {
+          "argv": [],
+          "name": "Open an account and deposit",
+          "files": [],
+          "stdin": "OP104821350000000000000420000C\nDP104821350000000000000185050 \n"
+        },
+        {
+          "argv": [],
+          "name": "Reject a short record",
+          "files": [],
+          "stdin": "DP10482135\n"
+        },
+        {
+          "argv": [],
+          "name": "Apply month end adjustments",
+          "files": [],
+          "stdin": "OP104821350000000000000420000C\nME000000000000000000000000000 \n"
+        }
+      ]
+    }
+  }
+}
