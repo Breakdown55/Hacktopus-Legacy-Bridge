@@ -4,6 +4,8 @@ Legacy Bridge turns functionality from legacy executables into reusable, modern 
 
 You upload a compiled program. You pick the behavior you want to keep. Legacy Bridge produces a replacement module and a set of rerunnable tests. Those tests compare the replacement's output against results captured from the real original program. You export the module with the tests and run them anywhere.
 
+Built at the 2026 CPVC AI Hackathon by Team Hacktopus (Breakdown55, DaRealDorseyBro, CarsonAbel, EmersonGreen2).
+
 ## The problem
 
 Many organizations depend on old compiled programs whose source is lost, undocumented or unmaintainable. Rewriting them by hand is risky because nobody can say whether the rewrite behaves the same. Legacy Bridge makes the rewrite evidence-based: every claim of equivalence is backed by a recorded run of the original.
@@ -115,7 +117,7 @@ Tests default to PGlite. To run them on real Postgres, use `TEST_DATABASE_URL=po
 
 ## Status and known limits
 
-This is a working prototype and not production software.
+This is a working prototype that started as a hackathon project. It is not production software.
 
 - Sandboxing uses plain Docker (runc), not gVisor. TypeScript builds run on the host, so the worker refuses to start in production mode unless that is addressed.
 - There is no login UI yet. Local use relies on dev auth headers, and the browser flow is meant for loopback only.
