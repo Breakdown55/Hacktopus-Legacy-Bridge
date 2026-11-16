@@ -4,7 +4,7 @@ Legacy Bridge turns functionality from legacy executables into reusable, modern 
 
 You upload a compiled program. You pick the behavior you want to keep. Legacy Bridge produces a replacement module and a set of rerunnable tests. Those tests compare the replacement's output against results captured from the real original program. You export the module with the tests and run them anywhere.
 
-Built at the 2026 CPVC AI Hackathon by Team Hacktopus (Breakdown55, DaRealDorseyBro, CarsonAbel, EmersonGreen2).
+Built by Team Hacktopus: [Breakdown55](https://github.com/Breakdown55), [DaRealDorseyBro](https://github.com/DaRealDorseyBro), [CarsonAbel](https://github.com/CarsonAbel), and [EmersonGreen2](https://github.com/EmersonGreen2), for the 2026 CPVC AI Hackathon
 
 ## The problem
 
